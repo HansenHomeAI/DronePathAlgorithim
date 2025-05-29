@@ -12,143 +12,93 @@
     header{padding:1.2rem 2rem;font-size:1.4rem;font-weight:600}
     main{flex:1;display:grid;grid-template-rows:1fr auto}
     #graph{width:100%;height:100%}
-    #controls{background:var(--surface);padding:1rem 2rem;border-top:1px solid #222;display:flex;flex-wrap:wrap;gap:1.4rem 2.5rem;justify-content:center}
-    .control{display:flex;flex-direction:column;gap:.35rem;width:240px}
+    #controls{background:var(--surface);padding:1rem 2rem;border-top:1px solid #222;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1.4rem 2.5rem;align-items:start}
+    .control{display:flex;flex-direction:column;gap:.35rem}
     label{font-size:.9rem;font-weight:500;color:var(--muted)}
     input[type=range]{-webkit-appearance:none;width:100%;height:6px;border-radius:3px;background:#333}
     input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--accent);cursor:pointer;transition:transform .15s ease}
     input[type=range]::-webkit-slider-thumb:active{transform:scale(1.25)}
     .value-label{align-self:flex-end;font-size:.85rem}
-    button{padding:.6rem 1rem;border:none;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer;font-size:.9rem;margin-top:.6rem}
+    button{padding:.55rem 1rem;border:none;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer;font-size:.85rem;grid-column:1/-1}
   </style>
 </head>
 <body>
-  <header>Bounded Spiral Designer</header>
+  <header>Bounded Spiral Designer</header>
   <main>
     <section id="graph"></section>
     <section id="controls">
-      <div class="control"><label for="slices">Slices (360°/value)</label><input type="range" id="slices" min="1" max="10" value="6" step="1"><span class="value-label" id="sliceVal">6</span></div>
-      <div class="control"><label for="bounces">Outward bounces (N)</label><input type="range" id="bounces" min="1" max="30" value="6" step="1"><span class="value-label" id="bounceVal">6</span></div>
-      <div class="control"><label for="r0">Start radius r₀ (ft)</label><input type="range" id="r0" min="0.1" max="30" value="1" step="0.1"><span class="value-label" id="r0Val">1 ft</span></div>
-      <div class="control"><label for="rHold">Hold radius r<sub>hold</sub> (ft)</label><input type="range" id="rHold" min="2" max="200" value="50" step="1"><span class="value-label" id="rHoldVal">50 ft</span></div>
-      <button id="exportBtn">Console Waypoints</button>
+      <div class="control"><label>Slices (360°/value)</label><input type="range" id="slices" min="1" max="10" value="6" step="1"><span class="value-label" id="sliceVal">6</span></div>
+      <div class="control"><label>Outward bounces (N)</label><input type="range" id="bounces" min="1" max="30" value="6" step="1"><span class="value-label" id="bounceVal">6</span></div>
+      <div class="control"><label>Start radius r₀ (ft)</label><input type="range" id="r0" min="0.1" max="30" value="1" step="0.1"><span class="value-label" id="r0Val">1 ft</span></div>
+      <div class="control"><label>Hold radius r<sub>hold</sub> (ft)</label><input type="range" id="rHold" min="2" max="200" value="50" step="1"><span class="value-label" id="rHoldVal">50 ft</span></div>
+      <button id="exportBtn">Console Waypoints</button>
     </section>
   </main>
+<script>
+(()=>{
+  /* ------------ DOM refs ------------- */
+  const qs=id=>document.getElementById(id);
+  const sliceS=qs('slices'), nS=qs('bounces'), r0S=qs('r0'), rhS=qs('rHold');
+  const lbl={sliceVal:qs('sliceVal'),bounceVal:qs('bounceVal'),r0Val:qs('r0Val'),rHoldVal:qs('rHoldVal')};
+  [sliceS,nS,r0S,rhS].forEach(el=>el.addEventListener('input',()=>refresh(false)));
+  qs('exportBtn').addEventListener('click',()=>{computeWaypoints();console.log(JSON.stringify(waypointCache,null,2));draw(true)});
 
-<script>(()=>{
-  /* -------- helpers -------- */
-  const $=id=>document.getElementById(id);
-  const sliceS=$('slices'), nS=$('bounces'), r0S=$('r0'), rhS=$('rHold');
-  const lbl={sliceVal:$('sliceVal'),bounceVal:$('bounceVal'),r0Val:$('r0Val'),rHoldVal:$('rHoldVal')};
-  [sliceS,nS,r0S,rhS].forEach(s=>s.addEventListener('input',refresh));
-  $('exportBtn').addEventListener('click',()=>console.log(JSON.stringify(generateWaypoints(),null,2)));
+  /* ------------ parameters ------------- */
+  const params=()=>({slices:+sliceS.value,N:+nS.value,r0:+r0S.value,rHold:+rhS.value});
+  const updateLabels=()=>{lbl.sliceVal.textContent=sliceS.value;lbl.bounceVal.textContent=nS.value;lbl.r0Val.textContent=`${r0S.value} ft`;lbl.rHoldVal.textContent=`${rhS.value} ft`;};
 
-  const toRad=d=>d*Math.PI/180;
-  const params=_=>({ slices:+sliceS.value, N:+nS.value, r0:+r0S.value, rHold:+rhS.value });
-  const labels=_=>{lbl.sliceVal.textContent=sliceS.value;lbl.bounceVal.textContent=nS.value;lbl.r0Val.textContent=`${r0S.value} ft`;lbl.rHoldVal.textContent=`${rhS.value} ft`;};
-
-  /* -------- spiral math -------- */
-  function baseSpiral({dphi,N,r0,rHold,steps=800}){
+  /* ------------ spiral math ------------- */
+  function makeSpiral({dphi,N,r0,rHold,steps=1000}){
     const alpha=Math.log(rHold/r0)/(N*dphi);
     const tOut=N*dphi,tHold=dphi,tTot=2*tOut+tHold;
     const theta=Array.from({length:steps},(_,i)=>i*tTot/(steps-1));
-    const r=theta.map(th=>th<=tOut?r0*Math.exp(alpha*th):th<=tOut+tHold?rHold:r0*Math.exp(alpha*(tTot-th)));
-    const phi=theta.map(th=>{const ph=((th/dphi)%2+2)%2;return ph<=1?ph*dphi:(2-ph)*dphi;});
-    const x=r.map((ri,i)=>ri*Math.cos(phi[i]));
-    const y=r.map((ri,i)=>ri*Math.sin(phi[i]));
-    return{theta,r,phi,x,y};
+    return theta.map(th=>{
+      const r=th<=tOut?r0*Math.exp(alpha*th):th<=tOut+tHold?rHold:r0*Math.exp(alpha*(tTot-th));
+      const phase=((th/dphi)%2+2)%2; const phi=phase<=1?phase*dphi:(2-phase)*dphi;
+      return{x:r*Math.cos(phi),y:r*Math.sin(phi)};
+    });
   }
 
-  /* -------- fit exponential arc with circular fillet(s) -------- */
-  const MAX_ERR=0.2; // ft
-  function dist(p,q){return Math.hypot(p.x-q.x,p.y-q.y);}  
-  function circleFrom3(a,b,c){ // returns {center:{x,y},R}
-    const d=2*(a.x*(b.y-c.y)+b.x*(c.y-a.y)+c.x*(a.y-b.y));
-    if(Math.abs(d)<1e-6) return null; // colinear
-    const ux=((a.x*a.x+a.y*a.y)*(b.y-c.y)+(b.x*b.x+b.y*b.y)*(c.y-a.y)+(c.x*c.x+c.y*c.y)*(a.y-b.y))/d;
-    const uy=((a.x*a.x+a.y*a.y)*(c.x-b.x)+(b.x*b.x+b.y*b.y)*(a.x-c.x)+(c.x*c.x+c.y*c.y)*(b.x-a.x))/d;
-    const R=Math.hypot(a.x-ux,a.y-uy);
-    return{center:{x:ux,y:uy},R};
-  }
-  function arcDeviation(points,circle){ // coarse max dev against circle arc
-    return points.reduce((m,p)=>Math.max(m,Math.abs(Math.hypot(p.x-circle.center.x,p.y-circle.center.y)-circle.R)),0);
-  }
-  function fitArc(phi0,phi1,spiral,dphi,r){
-    // compute start, mid, end points along exponential
-    const midPhi=(phi0+phi1)/2;
-    const expPt=phi=>({x:r*Math.exp(alpha*(phi-phi0))*Math.cos(phi),y:r*Math.exp(alpha*(phi-phi0))*Math.sin(phi)});
-  }
-  // Simpler approach: sample dense points, pick every boundary index and midpoint, compute circle, test err, else split once.
-  function buildWaypointsSlice(sliceIdx,p){
-    const offset=Math.PI/2; // rotate north
-    const dphi=(2*Math.PI)/p.slices;
-    const base=baseSpiral({...p,dphi,steps:1200});
-    // find indices where phi==0 or phi==dphi (boundaries)
-    const bIdx=[0];
-    for(let i=1;i<base.phi.length;i++){
-      if(Math.abs(base.phi[i])<1e-4||Math.abs(base.phi[i]-dphi)<1e-4) bIdx.push(i);
-    }
-    if(bIdx[bIdx.length-1]!==base.phi.length-1) bIdx.push(base.phi.length-1);
+  /* ------------ waypoint fitting ------------- */
+  const MAX_ERR=0.2;
+  const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+  const circle3=(A,B,C)=>{const d=2*(A.x*(B.y-C.y)+B.x*(C.y-A.y)+C.x*(A.y-B.y));if(Math.abs(d)<1e-6)return null;const ux=((A.x*A.x+A.y*A.y)*(B.y-C.y)+(B.x*B.x+B.y*B.y)*(C.y-A.y)+(C.x*C.x+C.y*C.y)*(A.y-B.y))/d;const uy=((A.x*A.x+A.y*A.y)*(C.x-B.x)+(B.x*B.x+B.y*B.y)*(A.x-C.x)+(C.x*C.x+C.y*C.y)*(B.x-A.x))/d;return{c:{x:ux,y:uy},R:dist(A,{x:ux,y:uy})};};
+  const maxErr=(pts,c)=>pts.reduce((m,p)=>Math.max(m,Math.abs(dist(p,c.c)-c.R)),0);
+  const rot=(p,a)=>({x:p.x*Math.cos(a)-p.y*Math.sin(a),y:p.x*Math.sin(a)+p.y*Math.cos(a)});
 
-    const waypoints=[];
-    for(let s=0;s<bIdx.length-1;s++){
-      const i0=bIdx[s], i1=bIdx[s+1];
-      const start={x:base.x[i0],y:base.y[i0]}, end={x:base.x[i1],y:base.y[i1]};
-      // midpoint index
-      const im=Math.floor((i0+i1)/2);
-      const mid={x:base.x[im],y:base.y[im]};
-      let circle=circleFrom3(start,mid,end);
-      let pts=base.x.slice(i0,i1+1).map((_,j)=>({x:base.x[i0+j],y:base.y[i0+j]}));
-      if(!circle||arcDeviation(pts,circle)>MAX_ERR){
-        // split into two arcs
-        const im1=Math.floor((i0+im)/2), im2=Math.floor((im+i1)/2);
-        const mid1={x:base.x[im1],y:base.y[im1]}, mid2={x:base.x[im2],y:base.y[im2]};
-        const c1=circleFrom3(start,mid1,mid);
-        const c2=circleFrom3(mid,end,mid2);
-        const curve1=c1?c1.R:0, curve2=c2?c2.R:0;
-        waypoints.push({...rot(start,offset+sliceIdx*dphi),curve:0});
-        waypoints.push({...rot(mid1,offset+sliceIdx*dphi),curve:curve1});
-        waypoints.push({...rot(mid,offset+sliceIdx*dphi),curve:curve1});
-        waypoints.push({...rot(mid2,offset+sliceIdx*dphi),curve:curve2});
-        if(s===bIdx.length-2) waypoints.push({...rot(end,offset+sliceIdx*dphi),curve:0});
-      }else{
-        const curve=circle.R;
-        waypoints.push({...rot(start,offset+sliceIdx*dphi),curve:0});
-        waypoints.push({...rot(mid,offset+sliceIdx*dphi),curve:curve});
-        if(s===bIdx.length-2) waypoints.push({...rot(end,offset+sliceIdx*dphi),curve:0});
-      }
-    }
-    return waypoints;
-    function rot(pt,ang){return{x:pt.x*Math.cos(ang)-pt.y*Math.sin(ang),y:pt.x*Math.sin(ang)+pt.y*Math.cos(ang)}}
+  let waypointCache=[];
+  function buildSlice(idx,p){
+    const dphi=(2*Math.PI)/p.slices, offset=Math.PI/2+idx*dphi;
+    const pts=makeSpiral({...p,dphi,steps:1200});
+    const stepAng=dphi/(pts.length-1);
+    const bounds=[0];
+    for(let i=1;i<pts.length;i++){const ang=i*stepAng%dphi;if(ang<1e-3||Math.abs(ang-dphi)<1e-3) bounds.push(i);} if(bounds[bounds.length-1]!==pts.length-1) bounds.push(pts.length-1);
+    const out=[];
+    for(let s=0;s<bounds.length-1;s++){
+      const i0=bounds[s],i1=bounds[s+1],im=Math.floor((i0+i1)/2),A=pts[i0],B=pts[im],C=pts[i1];
+      const seg=pts.slice(i0,i1+1); let circ=circle3(A,B,C);
+      const push=(pt,c)=>out.push({...rot(pt,offset),curve:+c.toFixed(2)});
+      if(!circ||maxErr(seg,circ)>MAX_ERR){const im1=Math.floor((i0+im)/2),im2=Math.floor((im+i1)/2);const B1=pts[im1],B2=pts[im2];const c1=circle3(A,B1,B),c2=circle3(B,B2,C);push(A,0); if(c1) push(B1,c1.R); push(B,c1?c1.R:0); if(c2) push(B2,c2.R); if(s===bounds.length-2) push(C,0);} else {push(A,0); push(B,circ.R); if(s===bounds.length-2) push(C,0);}  }
+    return out;
   }
-  function generateWaypoints(){
-    const p=params();
-    const all=[];
+  function computeWaypoints(){ waypointCache.length=0; const p=params(); for(let i=0;i<p.slices;i++) waypointCache.push(buildSlice(i,p)); }
+
+  /* ------------ drawing ------------- */
+  function draw(withWP=false){
+    const p=params(); const dphi=(2*Math.PI)/p.slices; const raw=makeSpiral({...p,dphi,steps:1200});
+    const traces=[]; const hue0=220,hue1=300,off=Math.PI/2;
     for(let k=0;k<p.slices;k++){
-      all.push(buildWaypointsSlice(k,p));
-    }
-    return all; // array of slices each slice array of waypoints {x,y,curve}
-  }
-
-  /* ---------- draw & refresh ---------- */
-  function draw(){
-    const p=params();
-    const dphi=(2*Math.PI)/p.slices;
-    const base=baseSpiral({...p,dphi,steps:1500});
-    const traces=[];
-    const hueStart=220, hueEnd=300;
-    const offset=Math.PI/2;
-    for(let k=0;k<p.slices;k++){
-      const ang=offset+k*dphi, c=Math.cos(ang), s=Math.sin(ang);
-      const rx=base.x.map((x,i)=>x*c-base.y[i]*s), ry=base.x.map((x,i)=>x*s+base.y[i]*c);
-      const hue=hueStart+(hueEnd-hueStart)*(k/(p.slices-1||1));
-      traces.push({x:rx,y:ry,mode:'lines',line:{color:`hsl(${hue} 80% 55%)`,width:2},hoverinfo:'skip'});
+      const ang=off+k*dphi,c=Math.cos(ang),s=Math.sin(ang);
+      traces.push({x:raw.map(pt=>pt.x*c-pt.y*s),y:raw.map(pt=>pt.x*s+pt.y*c),mode:'lines',line:{color:`hsl(${hue0+(hue1-hue0)*(k/(p.slices-1||1))} 80% 55%)`,width:2},hoverinfo:'skip'});
       traces.push({x:[0,p.rHold*Math.cos(ang)],y:[0,p.rHold*Math.sin(ang)],mode:'lines',line:{color:'#ff9500',width:2,dash:'dot'},hoverinfo:'skip'});
     }
+    if(withWP){ waypointCache.forEach((slice,k)=>{const hue=hue0+(hue1-hue0)*(k/(p.slices-1||1));traces.push({x:slice.map(w=>w.x),y:slice.map(w=>w.y),mode:'markers',marker:{color:`hsl(${hue} 80% 55%)`,size:4},hoverinfo:'skip'});}); }
     Plotly.react('graph',traces,{margin:{t:20,l:20,r:20,b:20},paper_bgcolor:'var(--bg)',plot_bgcolor:'var(--bg)',xaxis:{showgrid:true,gridcolor:'var(--grid)',dtick:2,zeroline:false,showticklabels:false,scaleanchor:'y',scaleratio:1},yaxis:{showgrid:true,gridcolor:'var(--grid)',dtick:2,zeroline:false,showticklabels:false}});
   }
-  function refresh(){labels();draw();}
-  labels();draw();
-})();</script>
+
+  function refresh(drawWP){ updateLabels(); draw(drawWP); waypointCache.length=0; }
+  refresh(false);
+})();
+</script>
 </body>
 </html>
