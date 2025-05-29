@@ -8,18 +8,20 @@
   <style>
     :root{--bg:#0d0d0d;--surface:#161616;--accent:#0a84ff;--text:#eaeaea;--muted:#888;--grid:#222}
     *{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-    body{margin:0;display:flex;flex-direction:column;min-height:100vh;background:var(--bg);color:var(--text)}
+    body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--text)}
     header{padding:1.2rem 2rem;font-size:1.4rem;font-weight:600}
     main{flex:1;display:grid;grid-template-rows:1fr auto}
     #graph{width:100%;height:100%}
-    #controls{background:var(--surface);padding:1rem 2rem;border-top:1px solid #222;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1.4rem 2.5rem;align-items:start}
+    #controls{background:var(--surface);padding:1rem 2rem;border-top:1px solid #222;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1.2rem 2rem}
     .control{display:flex;flex-direction:column;gap:.35rem}
     label{font-size:.9rem;font-weight:500;color:var(--muted)}
-    input[type=range]{-webkit-appearance:none;width:100%;height:6px;border-radius:3px;background:#333}
-    input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--accent);cursor:pointer;transition:transform .15s ease}
-    input[type=range]::-webkit-slider-thumb:active{transform:scale(1.25)}
+    input[type=range],input[type=text]{width:100%;}
+    input[type=range]{-webkit-appearance:none;height:6px;border-radius:3px;background:#333}
+    input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--accent);cursor:pointer}
+    input[type=text]{padding:.45rem .6rem;border-radius:6px;border:1px solid #333;background:#0f0f0f;color:var(--text)}
     .value-label{align-self:flex-end;font-size:.85rem}
-    button{padding:.55rem 1rem;border:none;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer;font-size:.85rem;grid-column:1/-1}
+    button{padding:.55rem 1.1rem;border:none;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer;font-size:.85rem}
+    #btnRow{grid-column:1/-1;display:flex;gap:1rem;justify-content:center}
   </style>
 </head>
 <body>
@@ -27,76 +29,77 @@
   <main>
     <section id="graph"></section>
     <section id="controls">
-      <div class="control"><label>Slices (360°/value)</label><input type="range" id="slices" min="1" max="10" value="6" step="1"><span class="value-label" id="sliceVal">6</span></div>
-      <div class="control"><label>Outward bounces (N)</label><input type="range" id="bounces" min="1" max="30" value="6" step="1"><span class="value-label" id="bounceVal">6</span></div>
-      <div class="control"><label>Start radius r₀ (ft)</label><input type="range" id="r0" min="0.1" max="30" value="1" step="0.1"><span class="value-label" id="r0Val">1 ft</span></div>
-      <div class="control"><label>Hold radius r<sub>hold</sub> (ft)</label><input type="range" id="rHold" min="2" max="200" value="50" step="1"><span class="value-label" id="rHoldVal">50 ft</span></div>
-      <button id="exportBtn">Console Waypoints</button>
+      <div class="control"><label>Slices (360° / value)</label><input id="slices" type="range" min="1" max="10" value="6"><span class="value-label" id="sliceVal">6</span></div>
+      <div class="control"><label>Outward bounces (N)</label><input id="bounces" type="range" min="1" max="30" value="6"><span class="value-label" id="bounceVal">6</span></div>
+      <div class="control"><label>Start radius r₀ (ft)</label><input id="r0" type="range" min="0.1" max="30" value="1" step="0.1"><span class="value-label" id="r0Val">1 ft</span></div>
+      <div class="control"><label>Hold radius r<sub>hold</sub> (ft)</label><input id="rHold" type="range" min="2" max="200" value="50" step="1"><span class="value-label" id="rHoldVal">50 ft</span></div>
+      <div class="control" style="grid-column:1/-1"><label>Center (lat, lon  decimal deg)</label><input id="centerLL" type="text" placeholder="45.60493, -122.41268"></div>
+      <div id="btnRow"><button id="consoleBtn">Console Waypoints</button><button id="csvBtn">Download CSV</button></div>
     </section>
   </main>
+
 <script>
 (()=>{
-  /* ------------ DOM refs ------------- */
-  const qs=id=>document.getElementById(id);
-  const sliceS=qs('slices'), nS=qs('bounces'), r0S=qs('r0'), rhS=qs('rHold');
-  const lbl={sliceVal:qs('sliceVal'),bounceVal:qs('bounceVal'),r0Val:qs('r0Val'),rHoldVal:qs('rHoldVal')};
+  const $=id=>document.getElementById(id);
+  const sliceS=$('slices'), nS=$('bounces'), r0S=$('r0'), rhS=$('rHold');
+  const lbl={sliceVal:$('sliceVal'),bounceVal:$('bounceVal'),r0Val:$('r0Val'),rHoldVal:$('rHoldVal')};
   [sliceS,nS,r0S,rhS].forEach(el=>el.addEventListener('input',()=>refresh(false)));
-  qs('exportBtn').addEventListener('click',()=>{computeWaypoints();console.log(JSON.stringify(waypointCache,null,2));draw(true)});
+  $('consoleBtn').addEventListener('click',()=>{computeWaypoints();console.log(JSON.stringify(waypointCache,null,2));draw(true);} );
+  $('csvBtn').addEventListener('click',downloadCSV);
 
-  /* ------------ parameters ------------- */
-  const params=()=>({slices:+sliceS.value,N:+nS.value,r0:+r0S.value,rHold:+rhS.value});
-  const updateLabels=()=>{lbl.sliceVal.textContent=sliceS.value;lbl.bounceVal.textContent=nS.value;lbl.r0Val.textContent=`${r0S.value} ft`;lbl.rHoldVal.textContent=`${rhS.value} ft`;};
+  const MAX_ERR=0.2, EARTH_R=6378137, FT2M=0.3048;
 
-  /* ------------ spiral math ------------- */
-  function makeSpiral({dphi,N,r0,rHold,steps=1000}){
-    const alpha=Math.log(rHold/r0)/(N*dphi);
-    const tOut=N*dphi,tHold=dphi,tTot=2*tOut+tHold;
-    const theta=Array.from({length:steps},(_,i)=>i*tTot/(steps-1));
-    return theta.map(th=>{
-      const r=th<=tOut?r0*Math.exp(alpha*th):th<=tOut+tHold?rHold:r0*Math.exp(alpha*(tTot-th));
-      const phase=((th/dphi)%2+2)%2; const phi=phase<=1?phase*dphi:(2-phase)*dphi;
-      return{x:r*Math.cos(phi),y:r*Math.sin(phi)};
-    });
-  }
-
-  /* ------------ waypoint fitting ------------- */
-  const MAX_ERR=0.2;
   const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
-  const circle3=(A,B,C)=>{const d=2*(A.x*(B.y-C.y)+B.x*(C.y-A.y)+C.x*(A.y-B.y));if(Math.abs(d)<1e-6)return null;const ux=((A.x*A.x+A.y*A.y)*(B.y-C.y)+(B.x*B.x+B.y*B.y)*(C.y-A.y)+(C.x*C.x+C.y*C.y)*(A.y-B.y))/d;const uy=((A.x*A.x+A.y*A.y)*(C.x-B.x)+(B.x*B.x+B.y*B.y)*(A.x-C.x)+(C.x*C.x+C.y*C.y)*(B.x-A.x))/d;return{c:{x:ux,y:uy},R:dist(A,{x:ux,y:uy})};};
+  const circle3=(A,B,C)=>{const d=2*(A.x*(B.y-C.y)+B.x*(C.y-A.y)+C.x*(A.y-B.y));if(Math.abs(d)<1e-6) return null;const ux=((A.x*A.x+A.y*A.y)*(B.y-C.y)+(B.x*B.x+B.y*B.y)*(C.y-A.y)+(C.x*C.x+C.y*C.y)*(A.y-B.y))/d;const uy=((A.x*A.x+A.y*A.y)*(C.x-B.x)+(B.x*B.x+B.y*B.y)*(A.x-C.x)+(C.x*C.x+C.y*C.y)*(B.x-A.x))/d;return{c:{x:ux,y:uy},R:dist(A,{x:ux,y:uy})};};
   const maxErr=(pts,c)=>pts.reduce((m,p)=>Math.max(m,Math.abs(dist(p,c.c)-c.R)),0);
   const rot=(p,a)=>({x:p.x*Math.cos(a)-p.y*Math.sin(a),y:p.x*Math.sin(a)+p.y*Math.cos(a)});
 
+  const params=()=>({slices:+sliceS.value,N:+nS.value,r0:+r0S.value,rHold:+rhS.value});
+  const updateLabels=()=>{lbl.sliceVal.textContent=sliceS.value;lbl.bounceVal.textContent=nS.value;lbl.r0Val.textContent=`${r0S.value} ft`;lbl.rHoldVal.textContent=`${rhS.value} ft`;};
+
+  function makeSpiral({dphi,N,r0,rHold,steps=1200}){
+    const alpha=Math.log(rHold/r0)/(N*dphi);
+    const tOut=N*dphi,tHold=dphi,tTot=2*tOut+tHold;
+    return Array.from({length:steps},(_,i)=>{
+      const th=i*tTot/(steps-1);
+      const r=th<=tOut?r0*Math.exp(alpha*th):th<=tOut+tHold?rHold:r0*Math.exp(alpha*(tTot-th));
+      const phase=((th/dphi)%2+2)%2; const phi=phase<=1?phase*dphi:(2-phase)*dphi;
+      return{x:r*Math.cos(phi),y:r*Math.sin(phi)};});
+  }
+
   let waypointCache=[];
   function buildSlice(idx,p){
-    const dphi=(2*Math.PI)/p.slices, offset=Math.PI/2+idx*dphi;
-    const pts=makeSpiral({...p,dphi,steps:1200});
+    const dphi=2*Math.PI/p.slices, off=Math.PI/2+idx*dphi;
+    const pts=makeSpiral({...p,dphi});
     const stepAng=dphi/(pts.length-1);
-    const bounds=[0];
-    for(let i=1;i<pts.length;i++){const ang=i*stepAng%dphi;if(ang<1e-3||Math.abs(ang-dphi)<1e-3) bounds.push(i);} if(bounds[bounds.length-1]!==pts.length-1) bounds.push(pts.length-1);
+    const bounds=[0];for(let i=1;i<pts.length;i++){const ang=i*stepAng%dphi;if(ang<1e-3||Math.abs(ang-dphi)<1e-3) bounds.push(i);}if(bounds[bounds.length-1]!==pts.length-1) bounds.push(pts.length-1);
     const out=[];
     for(let s=0;s<bounds.length-1;s++){
-      const i0=bounds[s],i1=bounds[s+1],im=Math.floor((i0+i1)/2),A=pts[i0],B=pts[im],C=pts[i1];
-      const seg=pts.slice(i0,i1+1); let circ=circle3(A,B,C);
-      const push=(pt,c)=>out.push({...rot(pt,offset),curve:+c.toFixed(2)});
-      if(!circ||maxErr(seg,circ)>MAX_ERR){const im1=Math.floor((i0+im)/2),im2=Math.floor((im+i1)/2);const B1=pts[im1],B2=pts[im2];const c1=circle3(A,B1,B),c2=circle3(B,B2,C);push(A,0); if(c1) push(B1,c1.R); push(B,c1?c1.R:0); if(c2) push(B2,c2.R); if(s===bounds.length-2) push(C,0);} else {push(A,0); push(B,circ.R); if(s===bounds.length-2) push(C,0);}  }
+      const i0=bounds[s],i1=bounds[s+1],im=Math.floor((i0+i1)/2),A=pts[i0],B=pts[im],C=pts[i1],seg=pts.slice(i0,i1+1);let circ=circle3(A,B,C);
+      const push=(pt,c)=>out.push({...rot(pt,off),curve:+c.toFixed(2)});
+      if(!circ||maxErr(seg,circ)>MAX_ERR){const im1=Math.floor((i0+im)/2),im2=Math.floor((im+i1)/2);const B1=pts[im1],B2=pts[im2];const c1=circle3(A,B1,B),c2=circle3(B,B2,C);push(A,0);if(c1)push(B1,c1.R);push(B,c1?c1.R:0);if(c2)push(B2,c2.R);if(s===bounds.length-2)push(C,0);}else{push(A,0);push(B,circ.R);if(s===bounds.length-2)push(C,0);} }
     return out;
   }
   function computeWaypoints(){ waypointCache.length=0; const p=params(); for(let i=0;i<p.slices;i++) waypointCache.push(buildSlice(i,p)); }
 
-  /* ------------ drawing ------------- */
-  function draw(withWP=false){
-    const p=params(); const dphi=(2*Math.PI)/p.slices; const raw=makeSpiral({...p,dphi,steps:1200});
-    const traces=[]; const hue0=220,hue1=300,off=Math.PI/2;
-    for(let k=0;k<p.slices;k++){
-      const ang=off+k*dphi,c=Math.cos(ang),s=Math.sin(ang);
-      traces.push({x:raw.map(pt=>pt.x*c-pt.y*s),y:raw.map(pt=>pt.x*s+pt.y*c),mode:'lines',line:{color:`hsl(${hue0+(hue1-hue0)*(k/(p.slices-1||1))} 80% 55%)`,width:2},hoverinfo:'skip'});
-      traces.push({x:[0,p.rHold*Math.cos(ang)],y:[0,p.rHold*Math.sin(ang)],mode:'lines',line:{color:'#ff9500',width:2,dash:'dot'},hoverinfo:'skip'});
-    }
-    if(withWP){ waypointCache.forEach((slice,k)=>{const hue=hue0+(hue1-hue0)*(k/(p.slices-1||1));traces.push({x:slice.map(w=>w.x),y:slice.map(w=>w.y),mode:'markers',marker:{color:`hsl(${hue} 80% 55%)`,size:4},hoverinfo:'skip'});}); }
-    Plotly.react('graph',traces,{margin:{t:20,l:20,r:20,b:20},paper_bgcolor:'var(--bg)',plot_bgcolor:'var(--bg)',xaxis:{showgrid:true,gridcolor:'var(--grid)',dtick:2,zeroline:false,showticklabels:false,scaleanchor:'y',scaleratio:1},yaxis:{showgrid:true,gridcolor:'var(--grid)',dtick:2,zeroline:false,showticklabels:false}});
+  function draw(showWP=false){
+    const p=params(); const dphi=2*Math.PI/p.slices, raw=makeSpiral({...p,dphi}); const traces=[]; const hue0=220,hue1=300,off=Math.PI/2;
+    for(let k=0;k<p.slices;k++){const ang=off+k*dphi,c=Math.cos(ang),s=Math.sin(ang);traces.push({x:raw.map(pt=>pt.x*c-pt.y*s),y:raw.map(pt=>pt.x*s+pt.y*c),mode:'lines',line:{color:`hsl(${hue0+(hue1-hue0)*(k/(p.slices-1||1))} 80% 55%)`,width:2}});traces.push({x:[0,p.rHold*Math.cos(ang)],y:[0,p.rHold*Math.sin(ang)],mode:'lines',line:{color:'#ff9500',width:2,dash:'dot'}});} if(showWP){ waypointCache.forEach((slice,k)=>{const hue=hue0+(hue1-hue0)*(k/(p.slices-1||1));traces.push({x:slice.map(w=>w.x),y:slice.map(w=>w.y),mode:'markers',marker:{color:`hsl(${hue} 80% 55%)`,size:4}});}); }
+    Plotly.newPlot('graph',traces,{margin:{t:20,l:20,r:20,b:20},paper_bgcolor:'var(--bg)',plot_bgcolor:'var(--bg)',xaxis:{showgrid:true,gridcolor:'var(--grid)',dtick:2,showticklabels:false,zeroline:false,scaleanchor:'y',scaleratio:1},yaxis:{showgrid:true,gridcolor:'var(--grid)',dtick:2,showticklabels:false,zeroline:false}});
   }
 
-  function refresh(drawWP){ updateLabels(); draw(drawWP); waypointCache.length=0; }
+  function refresh(drawWP){ draw(drawWP); waypointCache.length=0; updateLabels(); }
+
+  function downloadCSV(){ computeWaypoints(); draw(true);
+    const center=parseCenter($("centerLL").value.trim()); if(!center){alert('Enter center lat,lon');return;}
+    const rows=["latitude,longitude,altitude,heading,curvesize"];
+    waypointCache.forEach(slice=>{slice.forEach((wp,i)=>{const {lat,lon}=xy2ll(wp.x,wp.y,center.lat,center.lon);rows.push([lat,lon,34.75,0,wp.curve*FT2M].join(','));}); rows.push('');});
+    const blob=new Blob([rows.join('\n')],{type:'text/csv'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`mission_slices${params().slices}.csv`;a.click();URL.revokeObjectURL(a.href);
+  }
+  function parseCenter(txt){const m=txt.match(/([-+]?\d+\.?\d*)\s*,\s*([-+]?\d+\.?\d*)/);if(!m)return null;return{lat:parseFloat(m[1]),lon:parseFloat(m[2])};}
+  function xy2ll(xFt,yFt,lat0,lon0){const xM=xFt*FT2M,yM=yFt*FT2M;const dLat=yM/EARTH_R, dLon=xM/(EARTH_R*Math.cos(lat0*Math.PI/180));return{lat:lat0+dLat*180/Math.PI,lon:lon0+dLon*180/Math.PI};}
+
   refresh(false);
 })();
 </script>
