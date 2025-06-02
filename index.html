@@ -249,8 +249,9 @@
       // Use curve radius from spiral calculation
       const curveSizeMeters = Math.round((wp.curve * FT2M) * 100) / 100;
       
-      // Calculate gimbal pitch
-      const gimbalPitch = Math.round(-10 - (altitude - baseAltitude) * 0.1);
+      // Calculate gimbal pitch based on waypoint position (safe curve: -35° to -21° to -35°)
+      const progress = i / (spiralPath.length - 1); // 0 to 1 across all waypoints
+      const gimbalPitch = Math.round(-35 + 14 * Math.sin(progress * Math.PI)); // Smooth curve from -35 to -21 back to -35
       
       // Create waypoint row
       const row = [
