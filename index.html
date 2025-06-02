@@ -90,12 +90,83 @@
 
   function refresh(drawWP){ draw(drawWP); waypointCache.length=0; updateLabels(); }
 
-  function downloadCSV(){ computeWaypoints(); draw(true);
-    const center=parseCenter($("centerLL").value.trim()); if(!center){alert('Enter center lat,lon');return;}
-    const rows=["latitude,longitude,altitude,heading,curvesize"];
-    waypointCache.forEach(slice=>{slice.forEach((wp,i)=>{const {lat,lon}=xy2ll(wp.x,wp.y,center.lat,center.lon);rows.push([lat,lon,34.75,0,wp.curve*FT2M].join(','));}); rows.push('');});
-    const blob=new Blob([rows.join('\n')],{type:'text/csv'});
-    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`mission_slices${params().slices}.csv`;a.click();URL.revokeObjectURL(a.href);
+  function downloadCSV(){ 
+    computeWaypoints(); 
+    draw(true);
+    const center = parseCenter($("centerLL").value.trim()); 
+    if(!center) {
+      alert('Enter center lat,lon');
+      return;
+    }
+    
+    // Litchi mission format header
+    const header = "latitude,longitude,altitude(ft),heading(deg),curvesize(ft),rotationdir,gimbalmode,gimbalpitchangle,altitudemode,speed(m/s),poi_latitude,poi_longitude,poi_altitude(ft),poi_altitudemode,photo_timeinterval,photo_distinterval";
+    const rows = [header];
+    
+    // Flatten all slices into a single continuous path
+    const allWaypoints = [];
+    waypointCache.forEach(slice => {
+      slice.forEach(wp => allWaypoints.push(wp));
+    });
+    
+    // Generate proper flight mission
+    allWaypoints.forEach((wp, i) => {
+      const {lat, lon} = xy2ll(wp.x, wp.y, center.lat, center.lon);
+      
+      // Round coordinates to proper precision (5-6 decimal places)
+      const latitude = Math.round(lat * 100000) / 100000;
+      const longitude = Math.round(lon * 100000) / 100000;
+      
+      // Calculate altitude based on distance from center (terrain following simulation)
+      const distFromCenter = Math.sqrt(wp.x * wp.x + wp.y * wp.y);
+      const baseAltitude = 70; // Starting altitude in feet
+      const altitude = Math.round((baseAltitude + (distFromCenter * 0.8)) * 100) / 100;
+      
+      // Calculate heading to next waypoint
+      let heading = 0;
+      if (i < allWaypoints.length - 1) {
+        const next = allWaypoints[i + 1];
+        const dx = next.x - wp.x;
+        const dy = next.y - wp.y;
+        heading = Math.round(((Math.atan2(dx, dy) * 180 / Math.PI) + 360) % 360);
+      }
+      
+      // Convert curve size from feet to meters and round
+      const curveSizeMeters = Math.round((wp.curve * FT2M) * 100) / 100;
+      
+      // Calculate gimbal pitch based on altitude (higher = more downward)
+      const gimbalPitch = Math.round(-10 - (altitude - baseAltitude) * 0.1);
+      
+      // Create waypoint row with all Litchi parameters
+      const row = [
+        latitude,                    // latitude
+        longitude,                   // longitude  
+        altitude,                    // altitude(ft)
+        heading,                     // heading(deg)
+        curveSizeMeters,            // curvesize(ft) - actually in meters for Litchi
+        0,                          // rotationdir (0=auto)
+        2,                          // gimbalmode (2=focus POI)
+        gimbalPitch,                // gimbalpitchangle
+        0,                          // altitudemode (0=AGL)
+        8.85,                       // speed(m/s)
+        center.lat,                 // poi_latitude
+        center.lon,                 // poi_longitude  
+        0,                          // poi_altitude(ft)
+        0,                          // poi_altitudemode
+        i === 0 ? 0 : 2.8,         // photo_timeinterval (no photo on first waypoint)
+        0                           // photo_distinterval
+      ].join(',');
+      
+      rows.push(row);
+    });
+    
+    // Create and download the file
+    const blob = new Blob([rows.join('\n')], {type: 'text/csv'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `litchi_mission_spiral_${params().slices}slices.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
   }
   function parseCenter(txt){
     // Enhanced parsing for multiple coordinate formats
