@@ -215,10 +215,40 @@
       return;
     }
     
-    // Generate a single continuous spiral path instead of separate slices
+    // Use the EXACT same algorithm as the designer interface
     const p = params();
     const isDebugMode = $('debugMode').checked;
-    const spiralPath = isDebugMode ? generateDebugSliceWaypoints(p) : generateContinuousSpiral(p);
+    let spiralPath = [];
+    
+    if (isDebugMode) {
+      // Debug mode: generate one slice at the specified angle
+      const debugSliceAngle = +$('sliceAngle').value * Math.PI / 180;
+      const sliceIndex = Math.round(debugSliceAngle / (2 * Math.PI / p.slices)) % p.slices;
+      computeWaypoints(); // Generate waypoints using designer algorithm
+      if (waypointCache.length > 0) {
+        spiralPath = waypointCache[sliceIndex] || waypointCache[0];
+        // Rotate to the exact debug angle
+        const actualSliceAngle = sliceIndex * (2 * Math.PI / p.slices);
+        const rotationDiff = debugSliceAngle - actualSliceAngle;
+        spiralPath = spiralPath.map(wp => ({
+          x: wp.x * Math.cos(rotationDiff) - wp.y * Math.sin(rotationDiff),
+          y: wp.x * Math.sin(rotationDiff) + wp.y * Math.cos(rotationDiff),
+          curve: wp.curve
+        }));
+      }
+    } else {
+      // Full pattern mode: use all slices from designer algorithm
+      computeWaypoints(); // Generate waypoints using designer algorithm
+      waypointCache.forEach(slice => {
+        slice.forEach(wp => spiralPath.push(wp));
+      });
+    }
+    
+    // Ensure minimum curve radius for all waypoints
+    spiralPath = spiralPath.map(wp => ({
+      ...wp,
+      curve: Math.max(wp.curve, 15) // Minimum 15ft curve radius
+    }));
     
     // Litchi mission format header
     const header = "latitude,longitude,altitude(ft),heading(deg),curvesize(ft),rotationdir,gimbalmode,gimbalpitchangle,altitudemode,speed(m/s),poi_latitude,poi_longitude,poi_altitude(ft),poi_altitudemode,photo_timeinterval,photo_distinterval";
@@ -283,150 +313,6 @@
     a.download = `litchi_spiral_mission.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
-  }
-
-  // Generate waypoints for debug mode (single slice)
-  function generateDebugSliceWaypoints(params) {
-    const { slices, N, r0, rHold } = params;
-    const debugSliceAngle = +$('sliceAngle').value * Math.PI / 180;
-    const waypoints = [];
-    
-    // Create waypoints for a single slice
-    const totalSteps = 60; // Fewer steps for single slice debugging
-    const dphi = 2 * Math.PI / slices;
-    const alpha = Math.log(rHold / r0) / (N * dphi);
-    const tOut = N * dphi;
-    const tHold = dphi;
-    const tTotal = 2 * tOut + tHold;
-    
-    // Generate spiral points for one slice only
-    for (let i = 0; i < totalSteps; i++) {
-      const t = i * tTotal / (totalSteps - 1);
-      
-      // Calculate radius based on spiral phase
-      let r;
-      if (t <= tOut) {
-        r = r0 * Math.exp(alpha * t);
-      } else if (t <= tOut + tHold) {
-        r = rHold;
-      } else {
-        r = r0 * Math.exp(alpha * (tTotal - t));
-      }
-      
-      // Calculate angle for the debug slice
-      const phase = ((t / dphi) % 2 + 2) % 2;
-      const phi = phase <= 1 ? phase * dphi : (2 - phase) * dphi;
-      
-      // Rotate to the debug angle
-      const x = r * Math.cos(phi + debugSliceAngle);
-      const y = r * Math.sin(phi + debugSliceAngle);
-      
-      // Calculate curve radius for smooth flight
-      let curve = 0;
-      if (i > 0 && i < totalSteps - 1) {
-        const prevT = (i - 1) * tTotal / (totalSteps - 1);
-        const nextT = (i + 1) * tTotal / (totalSteps - 1);
-        
-        const prevPhase = ((prevT / dphi) % 2 + 2) % 2;
-        const nextPhase = ((nextT / dphi) % 2 + 2) % 2;
-        const prevPhi = prevPhase <= 1 ? prevPhase * dphi : (2 - prevPhase) * dphi;
-        const nextPhi = nextPhase <= 1 ? nextPhase * dphi : (2 - nextPhase) * dphi;
-        
-        const prevR = prevT <= tOut ? r0 * Math.exp(alpha * prevT) : 
-                     prevT <= tOut + tHold ? rHold : 
-                     r0 * Math.exp(alpha * (tTotal - prevT));
-        const nextR = nextT <= tOut ? r0 * Math.exp(alpha * nextT) : 
-                     nextT <= tOut + tHold ? rHold : 
-                     r0 * Math.exp(alpha * (tTotal - nextT));
-        
-        const prevX = prevR * Math.cos(prevPhi + debugSliceAngle);
-        const prevY = prevR * Math.sin(prevPhi + debugSliceAngle);
-        const nextX = nextR * Math.cos(nextPhi + debugSliceAngle);
-        const nextY = nextR * Math.sin(nextPhi + debugSliceAngle);
-        
-        const A = { x: prevX, y: prevY };
-        const B = { x, y };
-        const C = { x: nextX, y: nextY };
-        
-        const circ = circle3(A, B, C);
-        if (circ && circ.R > 0.1 && circ.R < 1000) {
-          curve = circ.R;
-        }
-      }
-      
-      waypoints.push({ x, y, curve });
-    }
-    
-    return waypoints;
-  }
-
-  // Generate a single continuous spiral that matches the visual design
-  function generateContinuousSpiral(params) {
-    const { slices, N, r0, rHold } = params;
-    const waypoints = [];
-    
-    // Create one continuous spiral that covers all slices
-    const totalSteps = 120; // Reduced for efficiency
-    const dphi = 2 * Math.PI / slices;
-    const alpha = Math.log(rHold / r0) / (N * dphi);
-    const tOut = N * dphi;
-    const tHold = dphi;
-    const tTotal = 2 * tOut + tHold;
-    
-    // Generate spiral points with proper curve calculations
-    for (let i = 0; i < totalSteps; i++) {
-      const t = i * tTotal / (totalSteps - 1);
-      
-      // Calculate radius based on spiral phase
-      let r;
-      if (t <= tOut) {
-        // Outward spiral
-        r = r0 * Math.exp(alpha * t);
-      } else if (t <= tOut + tHold) {
-        // Hold pattern
-        r = rHold;
-      } else {
-        // Inward spiral
-        r = r0 * Math.exp(alpha * (tTotal - t));
-      }
-      
-      // Calculate angle for continuous spiral
-      const angle = t * slices; // This creates the multi-slice coverage
-      
-      // Convert to cartesian coordinates
-      const x = r * Math.cos(angle);
-      const y = r * Math.sin(angle);
-      
-      // Calculate curve radius for smooth flight
-      let curve = 0;
-      if (i > 0 && i < totalSteps - 1) {
-        // Estimate curve radius based on rate of direction change
-        const prevT = (i - 1) * tTotal / (totalSteps - 1);
-        const nextT = (i + 1) * tTotal / (totalSteps - 1);
-        
-        const prevAngle = prevT * slices;
-        const nextAngle = nextT * slices;
-        
-        const prevX = r * Math.cos(prevAngle);
-        const prevY = r * Math.sin(prevAngle);
-        const nextX = r * Math.cos(nextAngle);
-        const nextY = r * Math.sin(nextAngle);
-        
-        // Calculate curve radius using circumcircle
-        const A = { x: prevX, y: prevY };
-        const B = { x, y };
-        const C = { x: nextX, y: nextY };
-        
-        const circ = circle3(A, B, C);
-        if (circ && circ.R > 0.1 && circ.R < 1000) {
-          curve = circ.R;
-        }
-      }
-      
-      waypoints.push({ x, y, curve });
-    }
-    
-    return waypoints;
   }
 
   function parseCenter(txt){
