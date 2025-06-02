@@ -91,69 +91,65 @@
   function refresh(drawWP){ draw(drawWP); waypointCache.length=0; updateLabels(); }
 
   function downloadCSV(){ 
-    computeWaypoints(); 
-    draw(true);
     const center = parseCenter($("centerLL").value.trim()); 
     if(!center) {
       alert('Enter center lat,lon');
       return;
     }
     
+    // Generate a single continuous spiral path instead of separate slices
+    const p = params();
+    const spiralPath = generateContinuousSpiral(p);
+    
     // Litchi mission format header
     const header = "latitude,longitude,altitude(ft),heading(deg),curvesize(ft),rotationdir,gimbalmode,gimbalpitchangle,altitudemode,speed(m/s),poi_latitude,poi_longitude,poi_altitude(ft),poi_altitudemode,photo_timeinterval,photo_distinterval";
     const rows = [header];
     
-    // Flatten all slices into a single continuous path
-    const allWaypoints = [];
-    waypointCache.forEach(slice => {
-      slice.forEach(wp => allWaypoints.push(wp));
-    });
-    
-    // Generate proper flight mission
-    allWaypoints.forEach((wp, i) => {
+    // Generate optimized waypoints with curves
+    spiralPath.forEach((wp, i) => {
       const {lat, lon} = xy2ll(wp.x, wp.y, center.lat, center.lon);
       
-      // Round coordinates to proper precision (5-6 decimal places)
+      // Round coordinates to proper precision
       const latitude = Math.round(lat * 100000) / 100000;
       const longitude = Math.round(lon * 100000) / 100000;
       
-      // Calculate altitude based on distance from center (terrain following simulation)
+      // Calculate altitude based on distance from center
       const distFromCenter = Math.sqrt(wp.x * wp.x + wp.y * wp.y);
-      const baseAltitude = 70; // Starting altitude in feet
+      const baseAltitude = 70;
       const altitude = Math.round((baseAltitude + (distFromCenter * 0.8)) * 100) / 100;
       
       // Calculate heading to next waypoint
       let heading = 0;
-      if (i < allWaypoints.length - 1) {
-        const next = allWaypoints[i + 1];
+      if (i < spiralPath.length - 1) {
+        const next = spiralPath[i + 1];
         const dx = next.x - wp.x;
         const dy = next.y - wp.y;
         heading = Math.round(((Math.atan2(dx, dy) * 180 / Math.PI) + 360) % 360);
       }
       
-      // Convert curve size from feet to meters and round
+      // Use curve radius from spiral calculation
       const curveSizeMeters = Math.round((wp.curve * FT2M) * 100) / 100;
       
-      // Calculate gimbal pitch based on altitude (higher = more downward)
+      // Calculate gimbal pitch
       const gimbalPitch = Math.round(-10 - (altitude - baseAltitude) * 0.1);
       
-      // Create waypoint row with all Litchi parameters
+      // Create waypoint row
       const row = [
-        latitude,                    // latitude
-        longitude,                   // longitude  
-        altitude,                    // altitude(ft)
-        heading,                     // heading(deg)
-        curveSizeMeters,            // curvesize(ft) - actually in meters for Litchi
-        0,                          // rotationdir (0=auto)
-        2,                          // gimbalmode (2=focus POI)
+        latitude,
+        longitude,  
+        altitude,
+        heading,
+        curveSizeMeters,
+        0,                          // rotationdir
+        2,                          // gimbalmode (focus POI)
         gimbalPitch,                // gimbalpitchangle
-        0,                          // altitudemode (0=AGL)
+        0,                          // altitudemode
         8.85,                       // speed(m/s)
         center.lat,                 // poi_latitude
         center.lon,                 // poi_longitude  
-        0,                          // poi_altitude(ft)
+        0,                          // poi_altitude
         0,                          // poi_altitudemode
-        i === 0 ? 0 : 2.8,         // photo_timeinterval (no photo on first waypoint)
+        i === 0 ? 0 : 2.8,         // photo_timeinterval
         0                           // photo_distinterval
       ].join(',');
       
@@ -164,10 +160,80 @@
     const blob = new Blob([rows.join('\n')], {type: 'text/csv'});
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `litchi_mission_spiral_${params().slices}slices.csv`;
+    a.download = `litchi_spiral_mission.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
   }
+
+  // Generate a single continuous spiral that matches the visual design
+  function generateContinuousSpiral(params) {
+    const { slices, N, r0, rHold } = params;
+    const waypoints = [];
+    
+    // Create one continuous spiral that covers all slices
+    const totalSteps = 120; // Reduced for efficiency
+    const dphi = 2 * Math.PI / slices;
+    const alpha = Math.log(rHold / r0) / (N * dphi);
+    const tOut = N * dphi;
+    const tHold = dphi;
+    const tTotal = 2 * tOut + tHold;
+    
+    // Generate spiral points with proper curve calculations
+    for (let i = 0; i < totalSteps; i++) {
+      const t = i * tTotal / (totalSteps - 1);
+      
+      // Calculate radius based on spiral phase
+      let r;
+      if (t <= tOut) {
+        // Outward spiral
+        r = r0 * Math.exp(alpha * t);
+      } else if (t <= tOut + tHold) {
+        // Hold pattern
+        r = rHold;
+      } else {
+        // Inward spiral
+        r = r0 * Math.exp(alpha * (tTotal - t));
+      }
+      
+      // Calculate angle for continuous spiral
+      const angle = t * slices; // This creates the multi-slice coverage
+      
+      // Convert to cartesian coordinates
+      const x = r * Math.cos(angle);
+      const y = r * Math.sin(angle);
+      
+      // Calculate curve radius for smooth flight
+      let curve = 0;
+      if (i > 0 && i < totalSteps - 1) {
+        // Estimate curve radius based on rate of direction change
+        const prevT = (i - 1) * tTotal / (totalSteps - 1);
+        const nextT = (i + 1) * tTotal / (totalSteps - 1);
+        
+        const prevAngle = prevT * slices;
+        const nextAngle = nextT * slices;
+        
+        const prevX = r * Math.cos(prevAngle);
+        const prevY = r * Math.sin(prevAngle);
+        const nextX = r * Math.cos(nextAngle);
+        const nextY = r * Math.sin(nextAngle);
+        
+        // Calculate curve radius using circumcircle
+        const A = { x: prevX, y: prevY };
+        const B = { x, y };
+        const C = { x: nextX, y: nextY };
+        
+        const circ = circle3(A, B, C);
+        if (circ && circ.R > 0.1 && circ.R < 1000) {
+          curve = circ.R;
+        }
+      }
+      
+      waypoints.push({ x, y, curve });
+    }
+    
+    return waypoints;
+  }
+
   function parseCenter(txt){
     // Enhanced parsing for multiple coordinate formats
     txt = txt.trim();
