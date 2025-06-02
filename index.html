@@ -33,6 +33,8 @@
       <div class="control"><label>Outward bounces (N)</label><input id="bounces" type="range" min="1" max="30" value="6"><span class="value-label" id="bounceVal">6</span></div>
       <div class="control"><label>Start radius r₀ (ft)</label><input id="r0" type="range" min="0.1" max="30" value="1" step="0.1"><span class="value-label" id="r0Val">1 ft</span></div>
       <div class="control"><label>Hold radius r<sub>hold</sub> (ft)</label><input id="rHold" type="range" min="2" max="200" value="50" step="1"><span class="value-label" id="rHoldVal">50 ft</span></div>
+      <div class="control"><label style="display:flex;align-items:center;gap:0.5rem">Debug Mode <input type="checkbox" id="debugMode" style="margin:0"></label><span class="value-label" id="debugModeVal">Full Pattern</span></div>
+      <div class="control" id="sliceAngleControl" style="display:none"><label>Slice Angle (°)</label><input id="sliceAngle" type="range" min="0" max="359" value="0" step="1"><span class="value-label" id="sliceAngleVal">0°</span></div>
       <div class="control" style="grid-column:1/-1"><label>Center (lat, lon)</label><input id="centerLL" type="text" placeholder="41.73218° N, 111.83979° W  or  41.73218, -111.83979"></div>
       <div id="btnRow"><button id="consoleBtn">Console Waypoints</button><button id="csvBtn">Download CSV</button></div>
     </section>
@@ -46,6 +48,22 @@
   [sliceS,nS,r0S,rhS].forEach(el=>el.addEventListener('input',()=>refresh(false)));
   $('consoleBtn').addEventListener('click',()=>{computeWaypoints();console.log(JSON.stringify(waypointCache,null,2));draw(true);} );
   $('csvBtn').addEventListener('click',downloadCSV);
+
+  // Debug mode controls
+  const debugMode = $('debugMode'), sliceAngle = $('sliceAngle');
+  const debugLbl = {debugModeVal: $('debugModeVal'), sliceAngleVal: $('sliceAngleVal')};
+  
+  debugMode.addEventListener('change', () => {
+    const isDebug = debugMode.checked;
+    $('sliceAngleControl').style.display = isDebug ? 'flex' : 'none';
+    debugLbl.debugModeVal.textContent = isDebug ? 'Single Slice' : 'Full Pattern';
+    refresh(false);
+  });
+  
+  sliceAngle.addEventListener('input', () => {
+    debugLbl.sliceAngleVal.textContent = `${sliceAngle.value}°`;
+    refresh(false);
+  });
 
   const MAX_ERR=0.2, EARTH_R=6378137, FT2M=0.3048;
 
@@ -83,9 +101,109 @@
   function computeWaypoints(){ waypointCache.length=0; const p=params(); for(let i=0;i<p.slices;i++) waypointCache.push(buildSlice(i,p)); }
 
   function draw(showWP=false){
-    const p=params(); const dphi=2*Math.PI/p.slices, raw=makeSpiral({...p,dphi}); const traces=[]; const hue0=220,hue1=300,off=Math.PI/2;
-    for(let k=0;k<p.slices;k++){const ang=off+k*dphi,c=Math.cos(ang),s=Math.sin(ang);traces.push({x:raw.map(pt=>pt.x*c-pt.y*s),y:raw.map(pt=>pt.x*s+pt.y*c),mode:'lines',line:{color:`hsl(${hue0+(hue1-hue0)*(k/(p.slices-1||1))} 80% 55%)`,width:2}});traces.push({x:[0,p.rHold*Math.cos(ang)],y:[0,p.rHold*Math.sin(ang)],mode:'lines',line:{color:'#ff9500',width:2,dash:'dot'}});} if(showWP){ waypointCache.forEach((slice,k)=>{const hue=hue0+(hue1-hue0)*(k/(p.slices-1||1));traces.push({x:slice.map(w=>w.x),y:slice.map(w=>w.y),mode:'markers',marker:{color:`hsl(${hue} 80% 55%)`,size:4}});}); }
-    Plotly.newPlot('graph',traces,{margin:{t:20,l:20,r:20,b:20},paper_bgcolor:'var(--bg)',plot_bgcolor:'var(--bg)',xaxis:{showgrid:true,gridcolor:'var(--grid)',dtick:2,showticklabels:false,zeroline:false,scaleanchor:'y',scaleratio:1},yaxis:{showgrid:true,gridcolor:'var(--grid)',dtick:2,showticklabels:false,zeroline:false}});
+    const p = params();
+    const isDebugMode = $('debugMode').checked;
+    const debugSliceAngle = +$('sliceAngle').value * Math.PI / 180; // Convert to radians
+    const dphi = 2 * Math.PI / p.slices;
+    const raw = makeSpiral({...p, dphi});
+    const traces = [];
+    const hue0 = 220, hue1 = 300, off = Math.PI / 2;
+    
+    if (isDebugMode) {
+      // Debug mode: show only one slice at the specified angle
+      const k = 0; // Always use first slice but rotate it to debug angle
+      const ang = debugSliceAngle;
+      const c = Math.cos(ang), s = Math.sin(ang);
+      
+      // Draw the spiral slice
+      traces.push({
+        x: raw.map(pt => pt.x * c - pt.y * s),
+        y: raw.map(pt => pt.x * s + pt.y * c),
+        mode: 'lines',
+        line: {color: '#0a84ff', width: 3},
+        name: 'Debug Slice'
+      });
+      
+      // Draw radius line
+      traces.push({
+        x: [0, p.rHold * Math.cos(ang)],
+        y: [0, p.rHold * Math.sin(ang)],
+        mode: 'lines',
+        line: {color: '#ff9500', width: 2, dash: 'dot'},
+        name: 'Radius'
+      });
+      
+      // Show waypoints if requested
+      if (showWP && waypointCache.length > 0) {
+        const slice = waypointCache[0]; // Use first slice
+        const rotatedSlice = slice.map(wp => ({
+          x: wp.x * Math.cos(debugSliceAngle) - wp.y * Math.sin(debugSliceAngle),
+          y: wp.x * Math.sin(debugSliceAngle) + wp.y * Math.cos(debugSliceAngle)
+        }));
+        traces.push({
+          x: rotatedSlice.map(w => w.x),
+          y: rotatedSlice.map(w => w.y),
+          mode: 'markers',
+          marker: {color: '#ff0080', size: 6},
+          name: 'Waypoints'
+        });
+      }
+    } else {
+      // Full pattern mode: show all slices
+      for(let k = 0; k < p.slices; k++) {
+        const ang = off + k * dphi;
+        const c = Math.cos(ang), s = Math.sin(ang);
+        
+        traces.push({
+          x: raw.map(pt => pt.x * c - pt.y * s),
+          y: raw.map(pt => pt.x * s + pt.y * c),
+          mode: 'lines',
+          line: {color: `hsl(${hue0 + (hue1 - hue0) * (k / (p.slices - 1 || 1))} 80% 55%)`, width: 2}
+        });
+        
+        traces.push({
+          x: [0, p.rHold * Math.cos(ang)],
+          y: [0, p.rHold * Math.sin(ang)],
+          mode: 'lines',
+          line: {color: '#ff9500', width: 2, dash: 'dot'}
+        });
+      }
+      
+      if (showWP) {
+        waypointCache.forEach((slice, k) => {
+          const hue = hue0 + (hue1 - hue0) * (k / (p.slices - 1 || 1));
+          traces.push({
+            x: slice.map(w => w.x),
+            y: slice.map(w => w.y),
+            mode: 'markers',
+            marker: {color: `hsl(${hue} 80% 55%)`, size: 4}
+          });
+        });
+      }
+    }
+    
+    Plotly.newPlot('graph', traces, {
+      margin: {t: 20, l: 20, r: 20, b: 20},
+      paper_bgcolor: 'var(--bg)',
+      plot_bgcolor: 'var(--bg)',
+      showlegend: false,
+      xaxis: {
+        showgrid: true,
+        gridcolor: 'var(--grid)',
+        dtick: 2,
+        showticklabels: false,
+        zeroline: false,
+        scaleanchor: 'y',
+        scaleratio: 1
+      },
+      yaxis: {
+        showgrid: true,
+        gridcolor: 'var(--grid)',
+        dtick: 2,
+        showticklabels: false,
+        zeroline: false
+      }
+    });
   }
 
   function refresh(drawWP){ draw(drawWP); waypointCache.length=0; updateLabels(); }
@@ -99,7 +217,8 @@
     
     // Generate a single continuous spiral path instead of separate slices
     const p = params();
-    const spiralPath = generateContinuousSpiral(p);
+    const isDebugMode = $('debugMode').checked;
+    const spiralPath = isDebugMode ? generateDebugSliceWaypoints(p) : generateContinuousSpiral(p);
     
     // Litchi mission format header
     const header = "latitude,longitude,altitude(ft),heading(deg),curvesize(ft),rotationdir,gimbalmode,gimbalpitchangle,altitudemode,speed(m/s),poi_latitude,poi_longitude,poi_altitude(ft),poi_altitudemode,photo_timeinterval,photo_distinterval";
@@ -163,6 +282,81 @@
     a.download = `litchi_spiral_mission.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
+  }
+
+  // Generate waypoints for debug mode (single slice)
+  function generateDebugSliceWaypoints(params) {
+    const { slices, N, r0, rHold } = params;
+    const debugSliceAngle = +$('sliceAngle').value * Math.PI / 180;
+    const waypoints = [];
+    
+    // Create waypoints for a single slice
+    const totalSteps = 60; // Fewer steps for single slice debugging
+    const dphi = 2 * Math.PI / slices;
+    const alpha = Math.log(rHold / r0) / (N * dphi);
+    const tOut = N * dphi;
+    const tHold = dphi;
+    const tTotal = 2 * tOut + tHold;
+    
+    // Generate spiral points for one slice only
+    for (let i = 0; i < totalSteps; i++) {
+      const t = i * tTotal / (totalSteps - 1);
+      
+      // Calculate radius based on spiral phase
+      let r;
+      if (t <= tOut) {
+        r = r0 * Math.exp(alpha * t);
+      } else if (t <= tOut + tHold) {
+        r = rHold;
+      } else {
+        r = r0 * Math.exp(alpha * (tTotal - t));
+      }
+      
+      // Calculate angle for the debug slice
+      const phase = ((t / dphi) % 2 + 2) % 2;
+      const phi = phase <= 1 ? phase * dphi : (2 - phase) * dphi;
+      
+      // Rotate to the debug angle
+      const x = r * Math.cos(phi + debugSliceAngle);
+      const y = r * Math.sin(phi + debugSliceAngle);
+      
+      // Calculate curve radius for smooth flight
+      let curve = 0;
+      if (i > 0 && i < totalSteps - 1) {
+        const prevT = (i - 1) * tTotal / (totalSteps - 1);
+        const nextT = (i + 1) * tTotal / (totalSteps - 1);
+        
+        const prevPhase = ((prevT / dphi) % 2 + 2) % 2;
+        const nextPhase = ((nextT / dphi) % 2 + 2) % 2;
+        const prevPhi = prevPhase <= 1 ? prevPhase * dphi : (2 - prevPhase) * dphi;
+        const nextPhi = nextPhase <= 1 ? nextPhase * dphi : (2 - nextPhase) * dphi;
+        
+        const prevR = prevT <= tOut ? r0 * Math.exp(alpha * prevT) : 
+                     prevT <= tOut + tHold ? rHold : 
+                     r0 * Math.exp(alpha * (tTotal - prevT));
+        const nextR = nextT <= tOut ? r0 * Math.exp(alpha * nextT) : 
+                     nextT <= tOut + tHold ? rHold : 
+                     r0 * Math.exp(alpha * (tTotal - nextT));
+        
+        const prevX = prevR * Math.cos(prevPhi + debugSliceAngle);
+        const prevY = prevR * Math.sin(prevPhi + debugSliceAngle);
+        const nextX = nextR * Math.cos(nextPhi + debugSliceAngle);
+        const nextY = nextR * Math.sin(nextPhi + debugSliceAngle);
+        
+        const A = { x: prevX, y: prevY };
+        const B = { x, y };
+        const C = { x: nextX, y: nextY };
+        
+        const circ = circle3(A, B, C);
+        if (circ && circ.R > 0.1 && circ.R < 1000) {
+          curve = circ.R;
+        }
+      }
+      
+      waypoints.push({ x, y, curve });
+    }
+    
+    return waypoints;
   }
 
   // Generate a single continuous spiral that matches the visual design
