@@ -33,7 +33,7 @@
       <div class="control"><label>Outward bounces (N)</label><input id="bounces" type="range" min="1" max="30" value="6"><span class="value-label" id="bounceVal">6</span></div>
       <div class="control"><label>Start radius r₀ (ft)</label><input id="r0" type="range" min="0.1" max="30" value="1" step="0.1"><span class="value-label" id="r0Val">1 ft</span></div>
       <div class="control"><label>Hold radius r<sub>hold</sub> (ft)</label><input id="rHold" type="range" min="2" max="200" value="50" step="1"><span class="value-label" id="rHoldVal">50 ft</span></div>
-      <div class="control" style="grid-column:1/-1"><label>Center (lat, lon  decimal deg)</label><input id="centerLL" type="text" placeholder="45.60493, -122.41268"></div>
+      <div class="control" style="grid-column:1/-1"><label>Center (lat, lon)</label><input id="centerLL" type="text" placeholder="41.73218° N, 111.83979° W  or  41.73218, -111.83979"></div>
       <div id="btnRow"><button id="consoleBtn">Console Waypoints</button><button id="csvBtn">Download CSV</button></div>
     </section>
   </main>
@@ -97,7 +97,34 @@
     const blob=new Blob([rows.join('\n')],{type:'text/csv'});
     const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`mission_slices${params().slices}.csv`;a.click();URL.revokeObjectURL(a.href);
   }
-  function parseCenter(txt){const m=txt.match(/([-+]?\d+\.?\d*)\s*,\s*([-+]?\d+\.?\d*)/);if(!m)return null;return{lat:parseFloat(m[1]),lon:parseFloat(m[2])};}
+  function parseCenter(txt){
+    // Enhanced parsing for multiple coordinate formats
+    txt = txt.trim();
+    
+    // Handle formats like "41.73218° N, 111.83979° W" or "41.73218°N, 111.83979°W"
+    const degreeMatch = txt.match(/(\d+\.?\d*)\s*°?\s*([NS])\s*,\s*(\d+\.?\d*)\s*°?\s*([EW])/i);
+    if (degreeMatch) {
+      let lat = parseFloat(degreeMatch[1]);
+      let lon = parseFloat(degreeMatch[3]);
+      
+      // Convert S to negative latitude, W to negative longitude
+      if (degreeMatch[2].toUpperCase() === 'S') lat = -lat;
+      if (degreeMatch[4].toUpperCase() === 'W') lon = -lon;
+      
+      return { lat, lon };
+    }
+    
+    // Handle simple decimal format like "41.73218, -111.83979"
+    const decimalMatch = txt.match(/([-+]?\d+\.?\d*)\s*,\s*([-+]?\d+\.?\d*)/);
+    if (decimalMatch) {
+      return {
+        lat: parseFloat(decimalMatch[1]),
+        lon: parseFloat(decimalMatch[2])
+      };
+    }
+    
+    return null;
+  }
   function xy2ll(xFt,yFt,lat0,lon0){const xM=xFt*FT2M,yM=yFt*FT2M;const dLat=yM/EARTH_R, dLon=xM/(EARTH_R*Math.cos(lat0*Math.PI/180));return{lat:lat0+dLat*180/Math.PI,lon:lon0+dLon*180/Math.PI};}
 
   refresh(false);
