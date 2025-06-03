@@ -105,8 +105,31 @@
       const rotX = pt.x * Math.cos(off) - pt.y * Math.sin(off);
       const rotY = pt.x * Math.sin(off) + pt.y * Math.cos(off);
       
-      // Higher curve radius for midpoints, standard for bounces
-      const curveRadius = isMidpoint ? 35 : 20;
+      // Dynamic curve radius calculation
+      let curveRadius;
+      if(isMidpoint) {
+        // For midpoints, calculate curve radius based on distance from center
+        const distanceFromCenter = Math.sqrt(rotX * rotX + rotY * rotY);
+        
+        // MIDPOINT curve equation: base + (distance * scale factor)
+        // Much larger curves for ultra-smooth midpoint transitions
+        const baseCurve = 50; // Higher minimum curve for midpoints
+        const scaleFactor = 1.2; // EXTREMELY aggressive scale factor for massive curve growth
+        const maxCurve = 1500; // Very high maximum for smooth wide turns
+        
+        curveRadius = Math.min(maxCurve, baseCurve + (distanceFromCenter * scaleFactor));
+        curveRadius = Math.round(curveRadius * 10) / 10; // Round to 1 decimal place
+      } else {
+        // NON-MIDPOINT curve equation: smaller, more conservative curves
+        const distanceFromCenter = Math.sqrt(rotX * rotX + rotY * rotY);
+        
+        const baseCurve = 20; // Base curve for bounces
+        const scaleFactor = 0.05; // Conservative scale factor  
+        const maxCurve = 80; // Conservative maximum for bounces
+        
+        curveRadius = Math.min(maxCurve, baseCurve + (distanceFromCenter * scaleFactor));
+        curveRadius = Math.round(curveRadius * 10) / 10; // Round to 1 decimal place
+      }
       
       // Create unique waypoint object for each phase
       return {
