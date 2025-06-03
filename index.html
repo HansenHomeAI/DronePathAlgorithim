@@ -177,7 +177,7 @@
     if (isDebugMode) {
       // Debug mode: show only one slice at the specified angle
       const k = 0; // Always use first slice but rotate it to debug angle
-      const ang = debugSliceAngle;
+      const ang = Math.PI/2 + debugSliceAngle; // Add 90° offset to point north like full pattern
       const c = Math.cos(ang), s = Math.sin(ang);
       
       // Draw the spiral slice
@@ -202,8 +202,8 @@
       if (showWP && waypointCache.length > 0) {
         const slice = waypointCache[0]; // Use first slice
         const rotatedSlice = slice.map(wp => ({
-          x: wp.x * Math.cos(debugSliceAngle) - wp.y * Math.sin(debugSliceAngle),
-          y: wp.x * Math.sin(debugSliceAngle) + wp.y * Math.cos(debugSliceAngle)
+          x: wp.x * Math.cos(debugSliceAngle + Math.PI/2) - wp.y * Math.sin(debugSliceAngle + Math.PI/2),
+          y: wp.x * Math.sin(debugSliceAngle + Math.PI/2) + wp.y * Math.cos(debugSliceAngle + Math.PI/2)
         }));
         traces.push({
           x: rotatedSlice.map(w => w.x),
