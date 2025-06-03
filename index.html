@@ -89,95 +89,61 @@
   function buildSlice(idx,p){
     const dphi = 2*Math.PI/p.slices, off = Math.PI/2 + idx*dphi;
     
-    // Generate the exact same spiral as the visual using makeSpiral
-    const spiralPoints = makeSpiral({...p, dphi, steps: 1200});
+    // Generate the actual spiral points (same as visual)
+    const spiralPts = makeSpiral({...p, dphi});
+    const tOut = p.N*dphi, tHold = dphi, tTot = 2*tOut + tHold;
     
     const waypoints = [];
     
-    // Helper to rotate point by slice offset and add to waypoints
-    const addWaypoint = (pt, index) => {
+    // Helper to find spiral point closest to parameter t
+    const findSpiralPoint = (targetT) => {
+      const targetIndex = Math.round(targetT * (spiralPts.length - 1) / tTot);
+      const clampedIndex = Math.max(0, Math.min(spiralPts.length - 1, targetIndex));
+      const pt = spiralPts[clampedIndex];
+      
+      // Rotate the point to match slice orientation
       const rotX = pt.x * Math.cos(off) - pt.y * Math.sin(off);
       const rotY = pt.x * Math.sin(off) + pt.y * Math.cos(off);
-      waypoints.push({
-        x: rotX, 
-        y: rotY, 
-        curve: 20,
-        index: index // Keep track for debugging
-      });
+      
+      return {x: rotX, y: rotY, curve: 20};
     };
     
-    // Always add start point
-    addWaypoint(spiralPoints[0], 0);
+    // PHASE 1: Outward spiral - sample at key parameter values
+    waypoints.push(findSpiralPoint(0)); // Start point
     
-    // Walk through spiral and detect direction changes (bounces)
-    let lastAngle = Math.atan2(spiralPoints[1].y - spiralPoints[0].y, spiralPoints[1].x - spiralPoints[0].x);
-    
-    for(let i = 1; i < spiralPoints.length - 1; i++) {
-      const currentAngle = Math.atan2(spiralPoints[i+1].y - spiralPoints[i].y, spiralPoints[i+1].x - spiralPoints[i].x);
-      
-      // Normalize angles to handle wraparound
-      let angleDiff = currentAngle - lastAngle;
-      while(angleDiff > Math.PI) angleDiff -= 2*Math.PI;
-      while(angleDiff < -Math.PI) angleDiff += 2*Math.PI;
-      
-      // Detect significant direction changes (bounces)
-      if(Math.abs(angleDiff) > Math.PI * 0.7) { // About 126 degrees - indicates a sharp turn/bounce
-        addWaypoint(spiralPoints[i], i);
-      }
-      
-      // Also add waypoints at regular intervals to ensure coverage
-      if(i % 100 === 0) { // Every 100th point for good coverage
-        addWaypoint(spiralPoints[i], i);
-      }
-      
-      lastAngle = currentAngle;
-    }
-    
-    // Always add end point
-    addWaypoint(spiralPoints[spiralPoints.length - 1], spiralPoints.length - 1);
-    
-    // Additionally, let's add waypoints at specific phases for robustness
-    const alpha = Math.log(p.rHold/p.r0)/(p.N*dphi);
-    const tOut = p.N*dphi, tHold = dphi, tTot = 2*tOut + tHold;
-    const stepSize = tTot / (spiralPoints.length - 1);
-    
-    // Add waypoints at theoretical bounce times
     for(let bounce = 1; bounce <= p.N; bounce++) {
+      // Add midpoint before bounce (except for first)
+      if(bounce > 1) {
+        const tMid = (bounce - 0.5) * dphi;
+        waypoints.push(findSpiralPoint(tMid));
+      }
+      
+      // Add bounce point
       const tBounce = bounce * dphi;
-      const index = Math.round(tBounce / stepSize);
-      if(index < spiralPoints.length) {
-        addWaypoint(spiralPoints[index], index);
-      }
+      waypoints.push(findSpiralPoint(tBounce));
     }
     
-    // Add waypoints for inward bounces
+    // PHASE 2: Hold phase
+    const tMidHold = tOut + tHold/2;
+    const tEndHold = tOut + tHold;
+    
+    waypoints.push(findSpiralPoint(tMidHold)); // Mid-hold point
+    waypoints.push(findSpiralPoint(tEndHold)); // End-hold point
+    
+    // PHASE 3: Inward spiral
     for(let bounce = 1; bounce <= p.N; bounce++) {
-      const tBounce = tOut + tHold + bounce * dphi;
-      const index = Math.round(tBounce / stepSize);
-      if(index < spiralPoints.length) {
-        addWaypoint(spiralPoints[index], index);
+      // Add bounce point
+      const tBounce = tEndHold + bounce * dphi;
+      waypoints.push(findSpiralPoint(tBounce));
+      
+      // Add midpoint after bounce (except for last)
+      if(bounce < p.N) {
+        const tMid = tEndHold + (bounce + 0.5) * dphi;
+        waypoints.push(findSpiralPoint(tMid));
       }
     }
     
-    // Remove duplicates by checking distance (waypoints too close together)
-    const filteredWaypoints = [];
-    const minDistance = 5; // Minimum 5 feet between waypoints
-    
-    for(let i = 0; i < waypoints.length; i++) {
-      let tooClose = false;
-      for(let j = 0; j < filteredWaypoints.length; j++) {
-        const dist = Math.hypot(waypoints[i].x - filteredWaypoints[j].x, waypoints[i].y - filteredWaypoints[j].y);
-        if(dist < minDistance) {
-          tooClose = true;
-          break;
-        }
-      }
-      if(!tooClose) {
-        filteredWaypoints.push(waypoints[i]);
-      }
-    }
-    
-    return filteredWaypoints;
+    return waypoints;
   }
   function computeWaypoints(){ waypointCache.length=0; const p=params(); for(let i=0;i<p.slices;i++) waypointCache.push(buildSlice(i,p)); }
 
