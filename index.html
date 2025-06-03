@@ -316,34 +316,6 @@
     console.log(`After curve adjustment: ${spiralPath.length} waypoints`);
     console.log('Sample waypoints with phases:', spiralPath.slice(0, 10).map(wp => ({id: wp.id, phase: wp.phase, x: wp.x.toFixed(1), y: wp.y.toFixed(1)})));
     
-    // Fix coordinate collisions - prevent Litchi from merging nearby waypoints
-    const MIN_SEPARATION = 8.0; // Minimum 8 feet between waypoints (increased from 3ft)
-    
-    // Check ALL pairs of waypoints, not just consecutive ones
-    for(let i = 0; i < spiralPath.length; i++) {
-      for(let j = i + 1; j < spiralPath.length; j++) {
-        const wpA = spiralPath[i];
-        const wpB = spiralPath[j];
-        
-        const dx = wpB.x - wpA.x;
-        const dy = wpB.y - wpA.y;
-        const distance = Math.sqrt(dx*dx + dy*dy);
-        
-        if(distance < MIN_SEPARATION) {
-          // Add small offset to second waypoint to prevent collision
-          const offsetAngle = Math.atan2(dy, dx) + Math.PI/2; // Perpendicular to line between points
-          const offsetMagnitude = MIN_SEPARATION - distance + 0.5; // Extra 0.5ft buffer
-          
-          wpB.x += Math.cos(offsetAngle) * offsetMagnitude;
-          wpB.y += Math.sin(offsetAngle) * offsetMagnitude;
-          
-          console.log(`Fixed collision: ${wpA.id} vs ${wpB.id} - offset ${wpB.id} by ${offsetMagnitude.toFixed(1)}ft`);
-        }
-      }
-    }
-    
-    console.log(`After collision fix: ${spiralPath.length} waypoints preserved`);
-    
     // Litchi mission format header
     const header = "latitude,longitude,altitude(ft),heading(deg),curvesize(ft),rotationdir,gimbalmode,gimbalpitchangle,altitudemode,speed(m/s),poi_latitude,poi_longitude,poi_altitude(ft),poi_altitudemode,photo_timeinterval,photo_distinterval";
     const rows = [header];
