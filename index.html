@@ -147,10 +147,11 @@
       const tBounce = tEndHold + bounce * dphi;
       waypoints.push(findSpiralPoint(tBounce, false, `inbound_bounce_${bounce}`));
       
-      // Add midpoint after bounce - INBOUND MIDPOINT (mirror outbound pattern)
-      // Generate midpoint for ALL bounces to mirror outbound (which has midpoints before bounces 2-N)
-      const tMid = tEndHold + (bounce + 0.5) * dphi;
-      waypoints.push(findSpiralPoint(tMid, true, `inbound_mid_${bounce}`));
+      // Add midpoint after bounce - but NOT after the final bounce (would be at spiral end)
+      if(bounce < p.N) {
+        const tMid = tEndHold + (bounce + 0.5) * dphi;
+        waypoints.push(findSpiralPoint(tMid, true, `inbound_mid_${bounce}`));
+      }
     }
     
     return waypoints;
@@ -313,7 +314,7 @@
     console.log('Sample waypoints with phases:', spiralPath.slice(0, 10).map(wp => ({id: wp.id, phase: wp.phase, x: wp.x.toFixed(1), y: wp.y.toFixed(1)})));
     
     // Fix coordinate collisions - prevent Litchi from merging nearby waypoints
-    const MIN_SEPARATION = 3.0; // Minimum 3 feet between waypoints
+    const MIN_SEPARATION = 8.0; // Minimum 8 feet between waypoints (increased from 3ft)
     
     // Check ALL pairs of waypoints, not just consecutive ones
     for(let i = 0; i < spiralPath.length; i++) {
