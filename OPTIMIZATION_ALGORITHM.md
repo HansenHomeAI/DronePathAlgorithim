@@ -8,28 +8,30 @@ This system implements a sophisticated **binary search optimization algorithm** 
 
 **Input**: Battery capacity (minutes), number of batteries, center coordinates
 **Output**: Optimal spiral parameters (radius, bounces, start radius) that maximize coverage
-**Constraint**: Total flight time ≤ battery_capacity
-**Objective**: Maximize coverage area while staying within time limit
+**Constraint**: Flight time per battery ≤ battery_capacity (each battery flies separately)
+**Objective**: Maximize coverage area per battery while staying within individual battery time limit
 
 ## Algorithm Design
 
 ### 1. Flight Time Estimation
 
-Based on the original `oldFunction.py` logic, we calculate total mission time including:
+Based on the original `oldFunction.py` logic, we calculate flight time for a **single battery/slice**:
 
 ```python
-# Per-waypoint time calculation
+# Per-waypoint time calculation for ONE slice
 horizontal_time = distance_meters / speed_mps
 vertical_time = altitude_change_meters / vertical_speed_mps  
 segment_time = horizontal_time + vertical_time + hover_time + accel_time
 ```
 
-**Complete mission time includes:**
+**Important**: Each battery represents a separate flight mission. With 3 batteries at 20 minutes each, you get 3 separate 20-minute flights, not one combined 60-minute mission.
+
+**Single battery mission time includes:**
 - Takeoff and ascent to first waypoint
-- Flight time between all waypoints in all slices
+- Flight time between all waypoints in one slice  
 - Altitude changes at each waypoint
 - Hover and acceleration time (3+2 seconds per waypoint)
-- Return-to-home flight from each slice's last waypoint
+- Return-to-home flight from slice's last waypoint
 - Descent and landing time
 
 ### 2. Binary Search Optimization
@@ -82,13 +84,15 @@ if best_time < target_battery_minutes * 0.8:
 
 ## Performance Results
 
-The algorithm demonstrates excellent scaling and consistent ~95% battery utilization:
+The algorithm demonstrates excellent scaling and consistent ~95% battery utilization **per individual battery**:
 
-| Battery Duration | Batteries | Optimized Radius | Utilization | Convergence |
-|------------------|-----------|------------------|-------------|-------------|
-| 12 minutes       | 2         | 504 ft          | 95.0%       | ~12 iterations |
-| 25 minutes       | 3         | 1,139 ft        | 94.8%       | ~14 iterations |
-| 40 minutes       | 5         | 1,447 ft        | 95.0%       | ~15 iterations |
+| Battery Duration | Batteries | Optimized Radius | Utilization | Coverage per Battery |
+|------------------|-----------|------------------|-------------|---------------------|
+| 20 minutes       | 1         | 2,089 ft        | 94.9%       | Single 20-min flight |
+| 20 minutes       | 3         | 3,532 ft        | 95.0%       | Three 20-min flights |
+| 20 minutes       | 6         | 3,996 ft        | 81.3%       | Six 20-min flights |
+
+**Key Insight**: More batteries allow larger radius per battery because each slice covers smaller angular section (360°/batteries), enabling farther outbound flight in same time.
 
 ## Computational Efficiency
 

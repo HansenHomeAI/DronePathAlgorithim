@@ -606,8 +606,8 @@ class SpiralDesigner:
 
     def estimate_flight_time_minutes(self, params: Dict, center_lat: float, center_lon: float) -> float:
         """
-        Estimate total flight time in minutes for a spiral mission
-        Based on the timing logic from oldFunction.py
+        Estimate flight time in minutes for a SINGLE battery/slice
+        Each battery represents one separate flight, not combined mission time
         """
         # Flight parameters
         speed_mph = 19.8
@@ -616,71 +616,69 @@ class SpiralDesigner:
         hover_time = 3  # Hover time per waypoint
         accel_time = 2  # Acceleration time per waypoint
         
-        # Get all waypoints for all slices
+        # Get waypoints for all slices, but we only need ONE slice for timing
         all_waypoints = self.compute_waypoints(params)
         
-        total_time_seconds = 0.0
+        if not all_waypoints:
+            return 0.0
         
-        # Calculate time for each slice (battery)
-        for slice_waypoints in all_waypoints:
-            if not slice_waypoints:
-                continue
-                
-            slice_time = 0.0
-            
-            # Start at takeoff location (center coordinates)
-            prev_lat, prev_lon = center_lat, center_lon
-            prev_altitude = 100.0  # Assume 100ft starting altitude
-            
-            # Time to ascend to first waypoint
-            if slice_waypoints:
-                first_wp = slice_waypoints[0]
-                ascend_time = (prev_altitude * self.FT2M) / vertical_speed_mps
-                slice_time += ascend_time
-            
-            # Process each waypoint in the slice
-            for i, wp in enumerate(slice_waypoints):
-                # Convert waypoint coordinates to lat/lon
-                coords = self.xy_to_lat_lon(wp['x'], wp['y'], center_lat, center_lon)
-                
-                # Calculate altitude (simplified - use distance-based altitude)
-                dist_from_center = math.sqrt(wp['x']**2 + wp['y']**2)
-                wp_altitude = 100.0 + (dist_from_center * 0.8)  # Base + distance scaling
-                
-                # Calculate horizontal distance from previous position
-                horizontal_dist_m = self.haversine_distance(prev_lat, prev_lon, coords['lat'], coords['lon'])
-                
-                # Calculate altitude difference
-                altitude_diff_ft = abs(wp_altitude - prev_altitude)
-                altitude_diff_m = altitude_diff_ft * self.FT2M
-                
-                # Time calculations
-                horizontal_time = horizontal_dist_m / speed_mps
-                vertical_time = altitude_diff_m / vertical_speed_mps
-                segment_time = horizontal_time + vertical_time + hover_time + accel_time
-                
-                slice_time += segment_time
-                
-                # Update previous position
-                prev_lat, prev_lon = coords['lat'], coords['lon']
-                prev_altitude = wp_altitude
-            
-            # Time to return home from last waypoint
-            if slice_waypoints:
-                last_coords = self.xy_to_lat_lon(slice_waypoints[-1]['x'], slice_waypoints[-1]['y'], center_lat, center_lon)
-                return_dist_m = self.haversine_distance(last_coords['lat'], last_coords['lon'], center_lat, center_lon)
-                return_altitude_diff_m = (prev_altitude - 100.0) * self.FT2M  # Return to starting altitude
-                
-                return_time = (return_dist_m / speed_mps) + (abs(return_altitude_diff_m) / vertical_speed_mps) + accel_time
-                slice_time += return_time
-                
-                # Time to descend and land
-                descent_time = (100.0 * self.FT2M) / vertical_speed_mps
-                slice_time += descent_time
-            
-            total_time_seconds += slice_time
+        # Calculate time for ONE slice (since each battery flies one slice separately)
+        slice_waypoints = all_waypoints[0]  # Use first slice as representative
         
-        return total_time_seconds / 60.0  # Convert to minutes
+        if not slice_waypoints:
+            return 0.0
+            
+        slice_time = 0.0
+        
+        # Start at takeoff location (center coordinates)
+        prev_lat, prev_lon = center_lat, center_lon
+        prev_altitude = 100.0  # Assume 100ft starting altitude
+        
+        # Time to ascend to first waypoint
+        first_wp = slice_waypoints[0]
+        ascend_time = (prev_altitude * self.FT2M) / vertical_speed_mps
+        slice_time += ascend_time
+        
+        # Process each waypoint in the slice
+        for i, wp in enumerate(slice_waypoints):
+            # Convert waypoint coordinates to lat/lon
+            coords = self.xy_to_lat_lon(wp['x'], wp['y'], center_lat, center_lon)
+            
+            # Calculate altitude (simplified - use distance-based altitude)
+            dist_from_center = math.sqrt(wp['x']**2 + wp['y']**2)
+            wp_altitude = 100.0 + (dist_from_center * 0.8)  # Base + distance scaling
+            
+            # Calculate horizontal distance from previous position
+            horizontal_dist_m = self.haversine_distance(prev_lat, prev_lon, coords['lat'], coords['lon'])
+            
+            # Calculate altitude difference
+            altitude_diff_ft = abs(wp_altitude - prev_altitude)
+            altitude_diff_m = altitude_diff_ft * self.FT2M
+            
+            # Time calculations
+            horizontal_time = horizontal_dist_m / speed_mps
+            vertical_time = altitude_diff_m / vertical_speed_mps
+            segment_time = horizontal_time + vertical_time + hover_time + accel_time
+            
+            slice_time += segment_time
+            
+            # Update previous position
+            prev_lat, prev_lon = coords['lat'], coords['lon']
+            prev_altitude = wp_altitude
+        
+        # Time to return home from last waypoint
+        last_coords = self.xy_to_lat_lon(slice_waypoints[-1]['x'], slice_waypoints[-1]['y'], center_lat, center_lon)
+        return_dist_m = self.haversine_distance(last_coords['lat'], last_coords['lon'], center_lat, center_lon)
+        return_altitude_diff_m = (prev_altitude - 100.0) * self.FT2M  # Return to starting altitude
+        
+        return_time = (return_dist_m / speed_mps) + (abs(return_altitude_diff_m) / vertical_speed_mps) + accel_time
+        slice_time += return_time
+        
+        # Time to descend and land
+        descent_time = (100.0 * self.FT2M) / vertical_speed_mps
+        slice_time += descent_time
+        
+        return slice_time / 60.0  # Convert to minutes
     
     def optimize_spiral_for_battery(self, target_battery_minutes: float, num_batteries: int, center_lat: float, center_lon: float) -> Dict:
         """
