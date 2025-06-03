@@ -200,14 +200,10 @@
       
       // Show waypoints if requested
       if (showWP && waypointCache.length > 0) {
-        const slice = waypointCache[0]; // Use first slice
-        const rotatedSlice = slice.map(wp => ({
-          x: wp.x * Math.cos(debugSliceAngle + Math.PI/2) - wp.y * Math.sin(debugSliceAngle + Math.PI/2),
-          y: wp.x * Math.sin(debugSliceAngle + Math.PI/2) + wp.y * Math.cos(debugSliceAngle + Math.PI/2)
-        }));
+        const slice = waypointCache[0]; // Use first slice - waypoints are already correctly rotated by buildSlice
         traces.push({
-          x: rotatedSlice.map(w => w.x),
-          y: rotatedSlice.map(w => w.y),
+          x: slice.map(w => w.x),
+          y: slice.map(w => w.y),
           mode: 'markers',
           marker: {color: '#ff0080', size: 6},
           name: 'Waypoints'
