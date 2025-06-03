@@ -96,7 +96,7 @@
     const waypoints = [];
     
     // Helper to find spiral point closest to parameter t
-    const findSpiralPoint = (targetT, isMidpoint = false, label = '') => {
+    const findSpiralPoint = (targetT, isMidpoint = false, phase = 'unknown') => {
       const targetIndex = Math.round(targetT * (spiralPts.length - 1) / tTot);
       const clampedIndex = Math.max(0, Math.min(spiralPts.length - 1, targetIndex));
       const pt = spiralPts[clampedIndex];
@@ -108,58 +108,51 @@
       // Higher curve radius for midpoints, standard for bounces
       const curveRadius = isMidpoint ? 35 : 20;
       
+      // Create unique waypoint object for each phase
       return {
         x: rotX, 
         y: rotY, 
         curve: curveRadius,
-        t: targetT,
-        label: label
+        phase: phase,
+        t: targetT, // Add parameter for debugging
+        id: `${phase}_${targetT.toFixed(3)}` // Unique ID
       };
     };
     
-    // Generate ALL waypoints in parameter order (actual flight sequence)
-    const waypoints_to_generate = [];
-    
-    // OUTWARD SPIRAL PHASE
-    waypoints_to_generate.push({t: 0, isMid: false, label: 'start'});
+    // PHASE 1: Outward spiral - collect all outbound waypoints
+    waypoints.push(findSpiralPoint(0, false, 'outbound_start')); // Start point
     
     for(let bounce = 1; bounce <= p.N; bounce++) {
-      // Add midpoint before bounce (except for first)
+      // Add midpoint before bounce (except for first) - OUTBOUND MIDPOINT
       if(bounce > 1) {
         const tMid = (bounce - 0.5) * dphi;
-        waypoints_to_generate.push({t: tMid, isMid: true, label: `out_mid_${bounce}`});
+        waypoints.push(findSpiralPoint(tMid, true, `outbound_mid_${bounce}`));
       }
       
-      // Add bounce point
+      // Add bounce point - OUTBOUND BOUNCE
       const tBounce = bounce * dphi;
-      waypoints_to_generate.push({t: tBounce, isMid: false, label: `out_bounce_${bounce}`});
+      waypoints.push(findSpiralPoint(tBounce, false, `outbound_bounce_${bounce}`));
     }
     
-    // HOLD PHASE
+    // PHASE 2: Hold phase
     const tMidHold = tOut + tHold/2;
     const tEndHold = tOut + tHold;
-    waypoints_to_generate.push({t: tMidHold, isMid: true, label: 'hold_mid'});
-    waypoints_to_generate.push({t: tEndHold, isMid: false, label: 'hold_end'});
     
-    // INWARD SPIRAL PHASE
+    waypoints.push(findSpiralPoint(tMidHold, true, 'hold_mid')); // Mid-hold point
+    waypoints.push(findSpiralPoint(tEndHold, false, 'hold_end')); // End-hold point
+    
+    // PHASE 3: Inbound spiral - create COMPLETELY SEPARATE waypoints
     for(let bounce = 1; bounce <= p.N; bounce++) {
-      // Add bounce point
+      // Add bounce point - INBOUND BOUNCE (always separate)
       const tBounce = tEndHold + bounce * dphi;
-      waypoints_to_generate.push({t: tBounce, isMid: false, label: `in_bounce_${bounce}`});
+      waypoints.push(findSpiralPoint(tBounce, false, `inbound_bounce_${bounce}`));
       
-      // Add midpoint after bounce (except for last)
+      // Add midpoint after bounce (except for last) - INBOUND MIDPOINT (always separate)
       if(bounce < p.N) {
         const tMid = tEndHold + (bounce + 0.5) * dphi;
-        waypoints_to_generate.push({t: tMid, isMid: true, label: `in_mid_${bounce}`});
+        waypoints.push(findSpiralPoint(tMid, true, `inbound_mid_${bounce}`));
       }
     }
-    
-    // Sort by parameter t and generate waypoints in flight order
-    waypoints_to_generate.sort((a, b) => a.t - b.t);
-    
-    waypoints_to_generate.forEach(wp => {
-      waypoints.push(findSpiralPoint(wp.t, wp.isMid, wp.label));
-    });
     
     return waypoints;
   }
@@ -319,6 +312,30 @@
     
     console.log(`After curve adjustment: ${spiralPath.length} waypoints`);
     console.log('Sample waypoints with phases:', spiralPath.slice(0, 10).map(wp => ({id: wp.id, phase: wp.phase, x: wp.x.toFixed(1), y: wp.y.toFixed(1)})));
+    
+    // Fix coordinate collisions - prevent Litchi from merging nearby waypoints
+    const MIN_SEPARATION = 3.0; // Minimum 3 feet between waypoints
+    for(let i = 1; i < spiralPath.length; i++) {
+      const current = spiralPath[i];
+      const previous = spiralPath[i-1];
+      
+      const dx = current.x - previous.x;
+      const dy = current.y - previous.y;
+      const distance = Math.sqrt(dx*dx + dy*dy);
+      
+      if(distance < MIN_SEPARATION) {
+        // Add small offset to current waypoint to prevent collision
+        const offsetAngle = Math.atan2(dy, dx) + Math.PI/2; // Perpendicular to line between points
+        const offsetMagnitude = MIN_SEPARATION - distance + 0.5; // Extra 0.5ft buffer
+        
+        current.x += Math.cos(offsetAngle) * offsetMagnitude;
+        current.y += Math.sin(offsetAngle) * offsetMagnitude;
+        
+        console.log(`Fixed collision: ${current.id} offset by ${offsetMagnitude.toFixed(1)}ft`);
+      }
+    }
+    
+    console.log(`After collision fix: ${spiralPath.length} waypoints preserved`);
     
     // Litchi mission format header
     const header = "latitude,longitude,altitude(ft),heading(deg),curvesize(ft),rotationdir,gimbalmode,gimbalpitchangle,altitudemode,speed(m/s),poi_latitude,poi_longitude,poi_altitude(ft),poi_altitudemode,photo_timeinterval,photo_distinterval";
