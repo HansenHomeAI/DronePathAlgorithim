@@ -123,11 +123,9 @@
     waypoints.push(findSpiralPoint(0, false, 'outbound_start')); // Start point
     
     for(let bounce = 1; bounce <= p.N; bounce++) {
-      // Add midpoint before bounce (except for first) - OUTBOUND MIDPOINT
-      if(bounce > 1) {
-        const tMid = (bounce - 0.5) * dphi;
-        waypoints.push(findSpiralPoint(tMid, true, `outbound_mid_${bounce}`));
-      }
+      // Add midpoint before bounce - INCLUDING the first one!
+      const tMid = (bounce - 0.5) * dphi;
+      waypoints.push(findSpiralPoint(tMid, true, `outbound_mid_${bounce}`));
       
       // Add bounce point - OUTBOUND BOUNCE
       const tBounce = bounce * dphi;
@@ -142,6 +140,11 @@
     waypoints.push(findSpiralPoint(tEndHold, false, 'hold_end')); // End-hold point
     
     // PHASE 3: Inbound spiral - create COMPLETELY SEPARATE waypoints that mirror outbound
+    
+    // Add midpoint between hold_end and first inbound bounce
+    const tFirstInboundMid = tEndHold + 0.5 * dphi;
+    waypoints.push(findSpiralPoint(tFirstInboundMid, true, 'inbound_mid_0'));
+    
     for(let bounce = 1; bounce <= p.N; bounce++) {
       // Add bounce point - INBOUND BOUNCE (always separate)
       const tBounce = tEndHold + bounce * dphi;
