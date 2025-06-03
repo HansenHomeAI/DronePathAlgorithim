@@ -315,23 +315,27 @@
     
     // Fix coordinate collisions - prevent Litchi from merging nearby waypoints
     const MIN_SEPARATION = 3.0; // Minimum 3 feet between waypoints
-    for(let i = 1; i < spiralPath.length; i++) {
-      const current = spiralPath[i];
-      const previous = spiralPath[i-1];
-      
-      const dx = current.x - previous.x;
-      const dy = current.y - previous.y;
-      const distance = Math.sqrt(dx*dx + dy*dy);
-      
-      if(distance < MIN_SEPARATION) {
-        // Add small offset to current waypoint to prevent collision
-        const offsetAngle = Math.atan2(dy, dx) + Math.PI/2; // Perpendicular to line between points
-        const offsetMagnitude = MIN_SEPARATION - distance + 0.5; // Extra 0.5ft buffer
+    
+    // Check ALL pairs of waypoints, not just consecutive ones
+    for(let i = 0; i < spiralPath.length; i++) {
+      for(let j = i + 1; j < spiralPath.length; j++) {
+        const wpA = spiralPath[i];
+        const wpB = spiralPath[j];
         
-        current.x += Math.cos(offsetAngle) * offsetMagnitude;
-        current.y += Math.sin(offsetAngle) * offsetMagnitude;
+        const dx = wpB.x - wpA.x;
+        const dy = wpB.y - wpA.y;
+        const distance = Math.sqrt(dx*dx + dy*dy);
         
-        console.log(`Fixed collision: ${current.id} offset by ${offsetMagnitude.toFixed(1)}ft`);
+        if(distance < MIN_SEPARATION) {
+          // Add small offset to second waypoint to prevent collision
+          const offsetAngle = Math.atan2(dy, dx) + Math.PI/2; // Perpendicular to line between points
+          const offsetMagnitude = MIN_SEPARATION - distance + 0.5; // Extra 0.5ft buffer
+          
+          wpB.x += Math.cos(offsetAngle) * offsetMagnitude;
+          wpB.y += Math.sin(offsetAngle) * offsetMagnitude;
+          
+          console.log(`Fixed collision: ${wpA.id} vs ${wpB.id} - offset ${wpB.id} by ${offsetMagnitude.toFixed(1)}ft`);
+        }
       }
     }
     
