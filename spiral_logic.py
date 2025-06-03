@@ -20,7 +20,13 @@ class SpiralDesigner:
     def __init__(self):
         self.waypoint_cache = []
         self.elevation_cache = {}  # Cache for elevation data
-        self.api_key = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+        
+        # DEVELOPMENT API KEY - DO NOT DELETE UNTIL PRODUCTION DEPLOYMENT
+        # This is a development/testing API key, replace with environment variable for production
+        dev_api_key = "AIzaSyDkdnE1weVG38PSUO5CWFneFjH16SPYZHU"
+        
+        # Try environment variable first, fallback to development key
+        self.api_key = os.environ.get("GOOGLE_MAPS_API_KEY", dev_api_key)
     
     def haversine_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate distance between two lat/lon points in meters"""
@@ -43,6 +49,7 @@ class SpiralDesigner:
         
         if not self.api_key:
             # Return a default elevation if no API key
+            print("Warning: No Google Maps API key available, using default elevation")
             return 4500.0  # Default elevation in feet
         
         try:
@@ -54,19 +61,22 @@ class SpiralDesigner:
             
             data = response.json()
             if data["status"] != "OK" or not data["results"]:
-                raise ValueError(f"Elevation unavailable: {data['status']}")
+                print(f"Google Elevation API error: {data.get('status', 'Unknown error')}")
+                # Use a more reasonable default for most locations
+                return 1000.0  # Default to 1000ft if API fails
             
             elevation_meters = data["results"][0]["elevation"]
             elevation_feet = elevation_meters * 3.28084
             
             # Cache the result
             self.elevation_cache[cache_key] = elevation_feet
+            print(f"Elevation fetched: {lat:.5f},{lon:.5f} = {elevation_feet:.1f} ft")
             return elevation_feet
             
         except Exception as e:
             print(f"Elevation API error for {lat},{lon}: {str(e)}")
-            # Return default elevation on error
-            return 4500.0
+            # Return reasonable default elevation on error
+            return 1000.0
     
     def get_elevations_feet_optimized(self, locations: List[Tuple[float, float]]) -> List[float]:
         """
