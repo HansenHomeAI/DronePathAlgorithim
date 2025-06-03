@@ -15,14 +15,18 @@
     #controls{background:var(--surface);padding:1rem 2rem;border-top:1px solid #222;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1.2rem 2rem}
     .control{display:flex;flex-direction:column;gap:.35rem}
     label{font-size:.9rem;font-weight:500;color:var(--muted)}
-    input[type=range],input[type=text]{width:100%;}
+    input[type=range],input[type=text],input[type=number]{width:100%;}
     input[type=range]{-webkit-appearance:none;height:6px;border-radius:3px;background:#333}
     input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--accent);cursor:pointer}
-    input[type=text]{padding:.45rem .6rem;border-radius:6px;border:1px solid #333;background:#0f0f0f;color:var(--text)}
+    input[type=text],input[type=number]{padding:.45rem .6rem;border-radius:6px;border:1px solid #333;background:#0f0f0f;color:var(--text)}
     .value-label{align-self:flex-end;font-size:.85rem}
+    .param-display{font-size:.75rem;color:var(--muted);margin-top:.2rem}
     button{padding:.55rem 1.1rem;border:none;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer;font-size:.85rem}
     button:disabled{background:#666;cursor:not-allowed}
-    #btnRow{grid-column:1/-1;display:flex;gap:1rem;justify-content:center}
+    button.master{background:#ff6b35;}
+    .download-section{grid-column:1/-1;display:flex;flex-direction:column;gap:1rem}
+    .download-row{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap}
+    .download-label{font-size:.9rem;font-weight:500;color:var(--muted);text-align:center;margin-bottom:.5rem}
     .status{font-size:.8rem;color:var(--muted);text-align:center;margin-top:0.5rem}
     .error{color:#ff6b6b}
     .success{color:#51cf66}
@@ -33,16 +37,26 @@
   <main>
     <section id="graph"></section>
     <section id="controls">
-      <div class="control"><label>Slices (360° / value)</label><input id="slices" type="range" min="1" max="10" value="6"><span class="value-label" id="sliceVal">6</span></div>
-      <div class="control"><label>Outward bounces (N)</label><input id="bounces" type="range" min="1" max="30" value="6"><span class="value-label" id="bounceVal">6</span></div>
-      <div class="control"><label>Start radius r₀ (ft)</label><input id="r0" type="range" min="0.1" max="300" value="1" step="0.1"><span class="value-label" id="r0Val">1 ft</span></div>
-      <div class="control"><label>Hold radius r<sub>hold</sub> (ft)</label><input id="rHold" type="range" min="2" max="2000" value="50" step="1"><span class="value-label" id="rHoldVal">50 ft</span></div>
-      <div class="control"><label style="display:flex;align-items:center;gap:0.5rem">Debug Mode <input type="checkbox" id="debugMode" style="margin:0"></label><span class="value-label" id="debugModeVal">Full Pattern</span></div>
-      <div class="control" id="sliceAngleControl" style="display:none"><label>Slice Angle (°)</label><input id="sliceAngle" type="range" min="0" max="359" value="0" step="1"><span class="value-label" id="sliceAngleVal">0°</span></div>
+      <div class="control">
+        <label>Batteries (minimum 2)</label>
+        <input id="batteries" type="number" min="2" max="10" value="2">
+        <span class="value-label" id="batteryVal">2 batteries</span>
+      </div>
+      <div class="control">
+        <label>Size</label>
+        <input id="size" type="range" min="0" max="100" value="0">
+        <span class="value-label" id="sizeVal">Small</span>
+        <div class="param-display" id="paramDisplay">
+          Start: 150ft • Hold: 500ft • Bounces: 5
+        </div>
+      </div>
       <div class="control" style="grid-column:1/-1"><label>Center (lat, lon)</label><input id="centerLL" type="text" placeholder="41.73218° N, 111.83979° W  or  41.73218, -111.83979"></div>
-      <div id="btnRow">
-        <button id="consoleBtn">Console Waypoints</button>
-        <button id="csvBtn">Download CSV</button>
+      <div class="download-section">
+        <div class="download-label">Flight Segment Downloads</div>
+        <div class="download-row" id="batteryButtons"></div>
+        <div class="download-row">
+          <button id="masterBtn" class="master">Download Master CSV (All Batteries)</button>
+        </div>
       </div>
       <div class="status" id="status">Ready</div>
     </section>
@@ -55,29 +69,15 @@
   
   // DOM elements
   const $=id=>document.getElementById(id);
-  const sliceS=$('slices'), nS=$('bounces'), r0S=$('r0'), rhS=$('rHold');
-  const lbl={sliceVal:$('sliceVal'),bounceVal:$('bounceVal'),r0Val:$('r0Val'),rHoldVal:$('rHoldVal')};
-  const debugMode = $('debugMode'), sliceAngle = $('sliceAngle');
-  const debugLbl = {debugModeVal: $('debugModeVal'), sliceAngleVal: $('sliceAngleVal')};
+  const batteriesS=$('batteries'), sizeS=$('size');
+  const lbl={batteryVal:$('batteryVal'),sizeVal:$('sizeVal')};
   const statusEl = $('status');
+  const paramDisplay = $('paramDisplay');
+  const batteryButtons = $('batteryButtons');
   
   // Event listeners for controls
-  [sliceS,nS,r0S,rhS].forEach(el=>el.addEventListener('input',()=>refresh()));
-  $('consoleBtn').addEventListener('click', getWaypoints);
-  $('csvBtn').addEventListener('click', downloadCSV);
-  
-  // Debug mode controls
-  debugMode.addEventListener('change', () => {
-    const isDebug = debugMode.checked;
-    $('sliceAngleControl').style.display = isDebug ? 'flex' : 'none';
-    debugLbl.debugModeVal.textContent = isDebug ? 'Single Slice' : 'Full Pattern';
-    refresh();
-  });
-  
-  sliceAngle.addEventListener('input', () => {
-    debugLbl.sliceAngleVal.textContent = `${sliceAngle.value}°`;
-    refresh();
-  });
+  [batteriesS, sizeS].forEach(el=>el.addEventListener('input',()=>refresh()));
+  $('masterBtn').addEventListener('click', downloadMasterCSV);
 
   // Utility functions
   const setStatus = (msg, type = 'info') => {
@@ -86,24 +86,81 @@
   };
   
   const setButtonsEnabled = (enabled) => {
-    $('consoleBtn').disabled = !enabled;
-    $('csvBtn').disabled = !enabled;
+    $('masterBtn').disabled = !enabled;
+    // Also disable all battery buttons
+    const buttons = batteryButtons.querySelectorAll('button');
+    buttons.forEach(btn => btn.disabled = !enabled);
   };
 
-  const params = () => ({
-    slices: +sliceS.value,
-    N: +nS.value,
-    r0: +r0S.value,
-    rHold: +rhS.value,
-    debugMode: debugMode.checked,
-    debugAngle: +sliceAngle.value
-  });
+  // Validate and get battery count
+  const getBatteryCount = () => {
+    let batteries = parseInt(batteriesS.value);
+    if (isNaN(batteries) || batteries < 2) {
+      batteries = 2;
+      batteriesS.value = 2;
+    }
+    if (batteries > 10) {
+      batteries = 10;
+      batteriesS.value = 10;
+    }
+    return batteries;
+  };
+
+  // Calculate individual parameters from size slider
+  const calculateParams = (sizeValue, batteryOverride = null) => {
+    const size = parseFloat(sizeValue);
+    const batteries = batteryOverride || getBatteryCount();
+    
+    // Linear interpolation for each parameter
+    const r0 = 150 + (size / 100) * (500 - 150);      // 150ft → 500ft
+    const rHold = 500 + (size / 100) * (3000 - 500);  // 500ft → 3000ft
+    const N = Math.round(5 + (size / 100) * (10 - 5)); // 5 → 10 bounces
+    
+    return {
+      slices: batteries,  // batteries = slices for the backend
+      N: N,
+      r0: Math.round(r0 * 10) / 10,  // Round to 1 decimal
+      rHold: Math.round(rHold),       // Round to nearest integer
+      debugMode: false,
+      debugAngle: 0
+    };
+  };
+
+  const params = () => calculateParams(sizeS.value);
+  
+  // Create battery download buttons
+  const createBatteryButtons = () => {
+    const batteries = getBatteryCount();
+    batteryButtons.innerHTML = '';
+    
+    for (let i = 1; i <= batteries; i++) {
+      const btn = document.createElement('button');
+      btn.textContent = `Battery ${i} CSV`;
+      btn.addEventListener('click', () => downloadBatteryCSV(i));
+      batteryButtons.appendChild(btn);
+    }
+  };
   
   const updateLabels = () => {
-    lbl.sliceVal.textContent = sliceS.value;
-    lbl.bounceVal.textContent = nS.value;
-    lbl.r0Val.textContent = `${r0S.value} ft`;
-    lbl.rHoldVal.textContent = `${rhS.value} ft`;
+    const batteries = getBatteryCount();
+    lbl.batteryVal.textContent = `${batteries} ${batteries === 1 ? 'battery' : 'batteries'}`;
+    
+    const size = parseInt(sizeS.value);
+    let sizeLabel;
+    if (size <= 20) sizeLabel = 'Small';
+    else if (size <= 40) sizeLabel = 'Medium-Small';
+    else if (size <= 60) sizeLabel = 'Medium';
+    else if (size <= 80) sizeLabel = 'Medium-Large';
+    else sizeLabel = 'Large';
+    
+    lbl.sizeVal.textContent = sizeLabel;
+    
+    // Update parameter display
+    const p = calculateParams(size);
+    paramDisplay.textContent = `Start: ${p.r0}ft • Hold: ${p.rHold}ft • Bounces: ${p.N}`;
+    
+    // Update battery buttons
+    createBatteryButtons();
   };
 
   // API functions
@@ -148,27 +205,7 @@
     }
   }
 
-  async function getWaypoints() {
-    try {
-      setStatus('Computing waypoints...');
-      setButtonsEnabled(false);
-      
-      const response = await apiCall('/waypoints', params());
-      const data = await response.json();
-      
-      console.log('Waypoints Data:', JSON.stringify(data, null, 2));
-      setStatus(`Generated ${data.totalWaypoints} waypoints across ${data.sliceCount} slices`, 'success');
-      
-      // Refresh the display to show waypoints
-      await draw(true);
-    } catch (error) {
-      setStatus('Failed to compute waypoints', 'error');
-    } finally {
-      setButtonsEnabled(true);
-    }
-  }
-
-  async function downloadCSV() {
+  async function downloadBatteryCSV(batteryNumber) {
     try {
       const centerVal = $('centerLL').value.trim();
       if (!centerVal) {
@@ -176,7 +213,50 @@
         return;
       }
       
-      setStatus('Generating CSV...');
+      setStatus(`Generating Battery ${batteryNumber} CSV...`);
+      setButtonsEnabled(false);
+      
+      // Calculate the angle for this specific battery/slice
+      const batteries = getBatteryCount();
+      const sliceAngle = ((batteryNumber - 1) * 360 / batteries) % 360;
+      
+      const requestData = {
+        ...calculateParams(sizeS.value, 1), // Force to 1 slice for individual download
+        center: centerVal,
+        debugMode: true,  // Use debug mode for single slice
+        debugAngle: sliceAngle
+      };
+      
+      const response = await apiCall('/csv', requestData);
+      
+      // Create blob and download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `battery_${batteryNumber}_spiral_mission.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      setStatus(`Battery ${batteryNumber} CSV downloaded successfully`, 'success');
+    } catch (error) {
+      setStatus(`Failed to generate Battery ${batteryNumber} CSV`, 'error');
+    } finally {
+      setButtonsEnabled(true);
+    }
+  }
+
+  async function downloadMasterCSV() {
+    try {
+      const centerVal = $('centerLL').value.trim();
+      if (!centerVal) {
+        alert('Please enter center coordinates');
+        return;
+      }
+      
+      setStatus('Generating Master CSV...');
       setButtonsEnabled(false);
       
       const requestData = {
@@ -191,61 +271,24 @@
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'litchi_spiral_mission.csv';
+      a.download = 'master_spiral_mission.csv';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
       
-      setStatus('CSV downloaded successfully', 'success');
+      setStatus('Master CSV downloaded successfully', 'success');
     } catch (error) {
-      setStatus('Failed to generate CSV', 'error');
+      setStatus('Failed to generate Master CSV', 'error');
     } finally {
       setButtonsEnabled(true);
     }
   }
 
-  async function draw(showWaypoints = false) {
+  async function draw() {
     try {
       const spiralData = await getSpiralData();
       const traces = spiralData.traces || [];
-      
-      // Add waypoints if requested
-      if (showWaypoints) {
-        try {
-          const waypointResponse = await apiCall('/waypoints', params());
-          const waypointData = await waypointResponse.json();
-          
-          const p = params();
-          if (p.debugMode) {
-            // Debug mode: show waypoints for single slice
-            if (waypointData.waypoints && waypointData.waypoints.length > 0) {
-              const slice = waypointData.waypoints[0];
-              traces.push({
-                x: slice.map(w => w.x),
-                y: slice.map(w => w.y),
-                mode: 'markers',
-                marker: {color: '#ff0080', size: 6},
-                name: 'Waypoints'
-              });
-            }
-          } else {
-            // Full pattern: show all waypoints
-            waypointData.waypoints.forEach((slice, k) => {
-              const hue0 = 220, hue1 = 300;
-              const hue = hue0 + (hue1 - hue0) * (k / (waypointData.waypoints.length - 1 || 1));
-              traces.push({
-                x: slice.map(w => w.x),
-                y: slice.map(w => w.y),
-                mode: 'markers',
-                marker: {color: `hsl(${hue} 80% 55%)`, size: 4}
-              });
-            });
-          }
-        } catch (waypointError) {
-          console.warn('Could not load waypoints for display:', waypointError);
-        }
-      }
       
       Plotly.newPlot('graph', traces, {
         margin: {t: 20, l: 20, r: 20, b: 20},
@@ -270,9 +313,7 @@
         }
       });
       
-      if (!showWaypoints) {
-        setStatus('Ready');
-      }
+      setStatus('Ready');
     } catch (error) {
       console.error('Draw error:', error);
       setStatus('Failed to draw spiral', 'error');
