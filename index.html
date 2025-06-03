@@ -87,16 +87,81 @@
 
   let waypointCache=[];
   function buildSlice(idx,p){
-    const dphi=2*Math.PI/p.slices, off=Math.PI/2+idx*dphi;
-    const pts=makeSpiral({...p,dphi});
-    const stepAng=dphi/(pts.length-1);
-    const bounds=[0];for(let i=1;i<pts.length;i++){const ang=i*stepAng%dphi;if(ang<1e-3||Math.abs(ang-dphi)<1e-3) bounds.push(i);}if(bounds[bounds.length-1]!==pts.length-1) bounds.push(pts.length-1);
-    const out=[];
-    for(let s=0;s<bounds.length-1;s++){
-      const i0=bounds[s],i1=bounds[s+1],im=Math.floor((i0+i1)/2),A=pts[i0],B=pts[im],C=pts[i1],seg=pts.slice(i0,i1+1);let circ=circle3(A,B,C);
-      const push=(pt,c)=>out.push({...rot(pt,off),curve:+c.toFixed(2)});
-      if(!circ||maxErr(seg,circ)>MAX_ERR){const im1=Math.floor((i0+im)/2),im2=Math.floor((im+i1)/2);const B1=pts[im1],B2=pts[im2];const c1=circle3(A,B1,B),c2=circle3(B,B2,C);push(A,0);if(c1)push(B1,c1.R);push(B,c1?c1.R:0);if(c2)push(B2,c2.R);if(s===bounds.length-2)push(C,0);}else{push(A,0);push(B,circ.R);if(s===bounds.length-2)push(C,0);} }
-    return out;
+    const dphi = 2*Math.PI/p.slices, off = Math.PI/2 + idx*dphi;
+    const alpha = Math.log(p.rHold/p.r0)/(p.N*dphi);
+    const tOut = p.N*dphi, tHold = dphi, tTot = 2*tOut + tHold;
+    
+    const waypoints = [];
+    
+    // Helper function to create waypoint at given parameter t
+    const createWaypoint = (t) => {
+      let r, phi;
+      if(t <= tOut) {
+        // Outward spiral
+        r = p.r0 * Math.exp(alpha * t);
+        const phase = ((t/dphi) % 2 + 2) % 2;
+        phi = phase <= 1 ? phase * dphi : (2-phase) * dphi;
+      } else if(t <= tOut + tHold) {
+        // Hold at max radius
+        r = p.rHold;
+        const holdProgress = (t - tOut) / tHold;
+        phi = holdProgress * dphi;
+      } else {
+        // Inward spiral
+        const tInward = tTot - t;
+        r = p.r0 * Math.exp(alpha * tInward);
+        const phase = ((tInward/dphi) % 2 + 2) % 2;
+        phi = phase <= 1 ? phase * dphi : (2-phase) * dphi;
+      }
+      
+      // Convert to cartesian and rotate
+      const x = r * Math.cos(phi);
+      const y = r * Math.sin(phi);
+      const rotX = x * Math.cos(off) - y * Math.sin(off);
+      const rotY = x * Math.sin(off) + y * Math.cos(off);
+      
+      return {x: rotX, y: rotY, curve: 20}; // Simple fixed curve radius
+    };
+    
+    // Create waypoints at key positions:
+    // 1. Start point
+    waypoints.push(createWaypoint(0));
+    
+    // 2. At each bounce (direction change) during outward spiral
+    for(let bounce = 1; bounce <= p.N; bounce++) {
+      const tBounce = bounce * dphi;
+      waypoints.push(createWaypoint(tBounce));
+      
+      // Add midpoint between bounces if we're not at the last bounce
+      if(bounce < p.N) {
+        const tMid = tBounce + dphi/2;
+        waypoints.push(createWaypoint(tMid));
+      }
+    }
+    
+    // 3. Hold phase waypoints
+    waypoints.push(createWaypoint(tOut + tHold/2)); // Mid-hold
+    waypoints.push(createWaypoint(tOut + tHold));   // End-hold
+    
+    // 4. Inward spiral waypoints (mirror of outward)
+    for(let bounce = p.N-1; bounce >= 1; bounce--) {
+      const tBounce = tOut + tHold + (p.N - bounce) * dphi;
+      
+      // Add midpoint first
+      if(bounce < p.N-1) {
+        const tMid = tBounce - dphi/2;
+        waypoints.push(createWaypoint(tMid));
+      }
+      
+      // Then bounce point
+      waypoints.push(createWaypoint(tBounce));
+    }
+    
+    // 5. Final approach to center
+    waypoints.push(createWaypoint(tTot - dphi/2)); // Midpoint before final
+    waypoints.push(createWaypoint(tTot));          // Final point
+    
+    return waypoints;
   }
   function computeWaypoints(){ waypointCache.length=0; const p=params(); for(let i=0;i<p.slices;i++) waypointCache.push(buildSlice(i,p)); }
 
