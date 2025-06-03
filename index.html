@@ -21,7 +21,11 @@
     input[type=text]{padding:.45rem .6rem;border-radius:6px;border:1px solid #333;background:#0f0f0f;color:var(--text)}
     .value-label{align-self:flex-end;font-size:.85rem}
     button{padding:.55rem 1.1rem;border:none;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer;font-size:.85rem}
+    button:disabled{background:#666;cursor:not-allowed}
     #btnRow{grid-column:1/-1;display:flex;gap:1rem;justify-content:center}
+    .status{font-size:.8rem;color:var(--muted);text-align:center;margin-top:0.5rem}
+    .error{color:#ff6b6b}
+    .success{color:#51cf66}
   </style>
 </head>
 <body>
@@ -36,405 +40,269 @@
       <div class="control"><label style="display:flex;align-items:center;gap:0.5rem">Debug Mode <input type="checkbox" id="debugMode" style="margin:0"></label><span class="value-label" id="debugModeVal">Full Pattern</span></div>
       <div class="control" id="sliceAngleControl" style="display:none"><label>Slice Angle (°)</label><input id="sliceAngle" type="range" min="0" max="359" value="0" step="1"><span class="value-label" id="sliceAngleVal">0°</span></div>
       <div class="control" style="grid-column:1/-1"><label>Center (lat, lon)</label><input id="centerLL" type="text" placeholder="41.73218° N, 111.83979° W  or  41.73218, -111.83979"></div>
-      <div id="btnRow"><button id="consoleBtn">Console Waypoints</button><button id="csvBtn">Download CSV</button></div>
+      <div id="btnRow">
+        <button id="consoleBtn">Console Waypoints</button>
+        <button id="csvBtn">Download CSV</button>
+      </div>
+      <div class="status" id="status">Ready</div>
     </section>
   </main>
 
 <script>
 (()=>{
+  // Configuration
+  const API_BASE = 'http://localhost:5001/api';
+  
+  // DOM elements
   const $=id=>document.getElementById(id);
   const sliceS=$('slices'), nS=$('bounces'), r0S=$('r0'), rhS=$('rHold');
   const lbl={sliceVal:$('sliceVal'),bounceVal:$('bounceVal'),r0Val:$('r0Val'),rHoldVal:$('rHoldVal')};
-  [sliceS,nS,r0S,rhS].forEach(el=>el.addEventListener('input',()=>refresh(false)));
-  $('consoleBtn').addEventListener('click',()=>{computeWaypoints();console.log(JSON.stringify(waypointCache,null,2));draw(true);} );
-  $('csvBtn').addEventListener('click',downloadCSV);
-
-  // Debug mode controls
   const debugMode = $('debugMode'), sliceAngle = $('sliceAngle');
   const debugLbl = {debugModeVal: $('debugModeVal'), sliceAngleVal: $('sliceAngleVal')};
+  const statusEl = $('status');
   
+  // Event listeners for controls
+  [sliceS,nS,r0S,rhS].forEach(el=>el.addEventListener('input',()=>refresh()));
+  $('consoleBtn').addEventListener('click', getWaypoints);
+  $('csvBtn').addEventListener('click', downloadCSV);
+  
+  // Debug mode controls
   debugMode.addEventListener('change', () => {
     const isDebug = debugMode.checked;
     $('sliceAngleControl').style.display = isDebug ? 'flex' : 'none';
     debugLbl.debugModeVal.textContent = isDebug ? 'Single Slice' : 'Full Pattern';
-    refresh(false);
+    refresh();
   });
   
   sliceAngle.addEventListener('input', () => {
     debugLbl.sliceAngleVal.textContent = `${sliceAngle.value}°`;
-    refresh(false);
+    refresh();
   });
 
-  const MAX_ERR=0.2, EARTH_R=6378137, FT2M=0.3048;
+  // Utility functions
+  const setStatus = (msg, type = 'info') => {
+    statusEl.textContent = msg;
+    statusEl.className = `status ${type}`;
+  };
+  
+  const setButtonsEnabled = (enabled) => {
+    $('consoleBtn').disabled = !enabled;
+    $('csvBtn').disabled = !enabled;
+  };
 
-  const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
-  const circle3=(A,B,C)=>{const d=2*(A.x*(B.y-C.y)+B.x*(C.y-A.y)+C.x*(A.y-B.y));if(Math.abs(d)<1e-6) return null;const ux=((A.x*A.x+A.y*A.y)*(B.y-C.y)+(B.x*B.x+B.y*B.y)*(C.y-A.y)+(C.x*C.x+C.y*C.y)*(A.y-B.y))/d;const uy=((A.x*A.x+A.y*A.y)*(C.x-B.x)+(B.x*B.x+B.y*B.y)*(A.x-C.x)+(C.x*C.x+C.y*C.y)*(B.x-A.x))/d;return{c:{x:ux,y:uy},R:dist(A,{x:ux,y:uy})};};
-  const maxErr=(pts,c)=>pts.reduce((m,p)=>Math.max(m,Math.abs(dist(p,c.c)-c.R)),0);
-  const rot=(p,a)=>({x:p.x*Math.cos(a)-p.y*Math.sin(a),y:p.x*Math.sin(a)+p.y*Math.cos(a)});
+  const params = () => ({
+    slices: +sliceS.value,
+    N: +nS.value,
+    r0: +r0S.value,
+    rHold: +rhS.value,
+    debugMode: debugMode.checked,
+    debugAngle: +sliceAngle.value
+  });
+  
+  const updateLabels = () => {
+    lbl.sliceVal.textContent = sliceS.value;
+    lbl.bounceVal.textContent = nS.value;
+    lbl.r0Val.textContent = `${r0S.value} ft`;
+    lbl.rHoldVal.textContent = `${rhS.value} ft`;
+  };
 
-  const params=()=>({slices:+sliceS.value,N:+nS.value,r0:+r0S.value,rHold:+rhS.value});
-  const updateLabels=()=>{lbl.sliceVal.textContent=sliceS.value;lbl.bounceVal.textContent=nS.value;lbl.r0Val.textContent=`${r0S.value} ft`;lbl.rHoldVal.textContent=`${rhS.value} ft`;};
-
-  function makeSpiral({dphi,N,r0,rHold,steps=1200}){
-    const alpha=Math.log(rHold/r0)/(N*dphi);
-    const tOut=N*dphi,tHold=dphi,tTot=2*tOut+tHold;
-    return Array.from({length:steps},(_,i)=>{
-      const th=i*tTot/(steps-1);
-      const r=th<=tOut?r0*Math.exp(alpha*th):th<=tOut+tHold?rHold:r0*Math.exp(alpha*(tTot-th));
-      const phase=((th/dphi)%2+2)%2; const phi=phase<=1?phase*dphi:(2-phase)*dphi;
-      return{x:r*Math.cos(phi),y:r*Math.sin(phi)};});
+  // API functions
+  async function apiCall(endpoint, data = null, options = {}) {
+    try {
+      const config = {
+        method: data ? 'POST' : 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        ...options
+      };
+      
+      if (data) {
+        config.body = JSON.stringify(data);
+      }
+      
+      const response = await fetch(`${API_BASE}${endpoint}`, config);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+      
+      return response;
+    } catch (error) {
+      console.error(`API call failed: ${endpoint}`, error);
+      setStatus(`Error: ${error.message}`, 'error');
+      throw error;
+    }
   }
 
-  let waypointCache=[];
-  function buildSlice(idx,p){
-    const dphi = 2*Math.PI/p.slices, off = Math.PI/2 + idx*dphi;
-    
-    // Generate the actual spiral points (same as visual)
-    const spiralPts = makeSpiral({...p, dphi});
-    const tOut = p.N*dphi, tHold = dphi, tTot = 2*tOut + tHold;
-    
-    const waypoints = [];
-    
-    // Helper to find spiral point closest to parameter t
-    const findSpiralPoint = (targetT, isMidpoint = false, phase = 'unknown') => {
-      const targetIndex = Math.round(targetT * (spiralPts.length - 1) / tTot);
-      const clampedIndex = Math.max(0, Math.min(spiralPts.length - 1, targetIndex));
-      const pt = spiralPts[clampedIndex];
+  async function getSpiralData() {
+    try {
+      setStatus('Generating spiral...');
+      const response = await apiCall('/spiral-data', params());
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      setStatus('Failed to generate spiral', 'error');
+      throw error;
+    }
+  }
+
+  async function getWaypoints() {
+    try {
+      setStatus('Computing waypoints...');
+      setButtonsEnabled(false);
       
-      // Rotate the point to match slice orientation
-      const rotX = pt.x * Math.cos(off) - pt.y * Math.sin(off);
-      const rotY = pt.x * Math.sin(off) + pt.y * Math.cos(off);
+      const response = await apiCall('/waypoints', params());
+      const data = await response.json();
       
-      // Dynamic curve radius calculation
-      let curveRadius;
-      if(isMidpoint) {
-        // For midpoints, calculate curve radius based on distance from center
-        const distanceFromCenter = Math.sqrt(rotX * rotX + rotY * rotY);
-        
-        // MIDPOINT curve equation: base + (distance * scale factor)
-        // Much larger curves for ultra-smooth midpoint transitions
-        const baseCurve = 50; // Higher minimum curve for midpoints
-        const scaleFactor = 1.2; // EXTREMELY aggressive scale factor for massive curve growth
-        const maxCurve = 1500; // Very high maximum for smooth wide turns
-        
-        curveRadius = Math.min(maxCurve, baseCurve + (distanceFromCenter * scaleFactor));
-        curveRadius = Math.round(curveRadius * 10) / 10; // Round to 1 decimal place
+      console.log('Waypoints Data:', JSON.stringify(data, null, 2));
+      setStatus(`Generated ${data.totalWaypoints} waypoints across ${data.sliceCount} slices`, 'success');
+      
+      // Refresh the display to show waypoints
+      await draw(true);
+    } catch (error) {
+      setStatus('Failed to compute waypoints', 'error');
+    } finally {
+      setButtonsEnabled(true);
+    }
+  }
+
+  async function downloadCSV() {
+    try {
+      const centerVal = $('centerLL').value.trim();
+      if (!centerVal) {
+        alert('Please enter center coordinates');
+        return;
+      }
+      
+      setStatus('Generating CSV...');
+      setButtonsEnabled(false);
+      
+      const requestData = {
+        ...params(),
+        center: centerVal
+      };
+      
+      const response = await apiCall('/csv', requestData);
+      
+      // Create blob and download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'litchi_spiral_mission.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      setStatus('CSV downloaded successfully', 'success');
+    } catch (error) {
+      setStatus('Failed to generate CSV', 'error');
+    } finally {
+      setButtonsEnabled(true);
+    }
+  }
+
+  async function draw(showWaypoints = false) {
+    try {
+      const spiralData = await getSpiralData();
+      const traces = spiralData.traces || [];
+      
+      // Add waypoints if requested
+      if (showWaypoints) {
+        try {
+          const waypointResponse = await apiCall('/waypoints', params());
+          const waypointData = await waypointResponse.json();
+          
+          const p = params();
+          if (p.debugMode) {
+            // Debug mode: show waypoints for single slice
+            if (waypointData.waypoints && waypointData.waypoints.length > 0) {
+              const slice = waypointData.waypoints[0];
+              traces.push({
+                x: slice.map(w => w.x),
+                y: slice.map(w => w.y),
+                mode: 'markers',
+                marker: {color: '#ff0080', size: 6},
+                name: 'Waypoints'
+              });
+            }
+          } else {
+            // Full pattern: show all waypoints
+            waypointData.waypoints.forEach((slice, k) => {
+              const hue0 = 220, hue1 = 300;
+              const hue = hue0 + (hue1 - hue0) * (k / (waypointData.waypoints.length - 1 || 1));
+              traces.push({
+                x: slice.map(w => w.x),
+                y: slice.map(w => w.y),
+                mode: 'markers',
+                marker: {color: `hsl(${hue} 80% 55%)`, size: 4}
+              });
+            });
+          }
+        } catch (waypointError) {
+          console.warn('Could not load waypoints for display:', waypointError);
+        }
+      }
+      
+      Plotly.newPlot('graph', traces, {
+        margin: {t: 20, l: 20, r: 20, b: 20},
+        paper_bgcolor: 'var(--bg)',
+        plot_bgcolor: 'var(--bg)',
+        showlegend: false,
+        xaxis: {
+          showgrid: true,
+          gridcolor: 'var(--grid)',
+          dtick: 2,
+          showticklabels: false,
+          zeroline: false,
+          scaleanchor: 'y',
+          scaleratio: 1
+        },
+        yaxis: {
+          showgrid: true,
+          gridcolor: 'var(--grid)',
+          dtick: 2,
+          showticklabels: false,
+          zeroline: false
+        }
+      });
+      
+      if (!showWaypoints) {
+        setStatus('Ready');
+      }
+    } catch (error) {
+      console.error('Draw error:', error);
+      setStatus('Failed to draw spiral', 'error');
+    }
+  }
+
+  async function refresh() {
+    updateLabels();
+    await draw();
+  }
+
+  // Health check on startup
+  async function checkHealth() {
+    try {
+      const response = await fetch(`${API_BASE}/health`);
+      if (response.ok) {
+        setStatus('Connected to Python backend', 'success');
+        setTimeout(() => setStatus('Ready'), 2000);
       } else {
-        // NON-MIDPOINT curve equation: smaller, more conservative curves
-        const distanceFromCenter = Math.sqrt(rotX * rotX + rotY * rotY);
-        
-        const baseCurve = 20; // Base curve for bounces
-        const scaleFactor = 0.05; // Conservative scale factor  
-        const maxCurve = 80; // Conservative maximum for bounces
-        
-        curveRadius = Math.min(maxCurve, baseCurve + (distanceFromCenter * scaleFactor));
-        curveRadius = Math.round(curveRadius * 10) / 10; // Round to 1 decimal place
+        throw new Error('Backend not responding');
       }
-      
-      // Create unique waypoint object for each phase
-      return {
-        x: rotX, 
-        y: rotY, 
-        curve: curveRadius,
-        phase: phase,
-        t: targetT, // Add parameter for debugging
-        id: `${phase}_${targetT.toFixed(3)}` // Unique ID
-      };
-    };
-    
-    // PHASE 1: Outward spiral - collect all outbound waypoints
-    waypoints.push(findSpiralPoint(0, false, 'outbound_start')); // Start point
-    
-    for(let bounce = 1; bounce <= p.N; bounce++) {
-      // Add midpoint before bounce - INCLUDING the first one!
-      const tMid = (bounce - 0.5) * dphi;
-      waypoints.push(findSpiralPoint(tMid, true, `outbound_mid_${bounce}`));
-      
-      // Add bounce point - OUTBOUND BOUNCE
-      const tBounce = bounce * dphi;
-      waypoints.push(findSpiralPoint(tBounce, false, `outbound_bounce_${bounce}`));
+    } catch (error) {
+      setStatus('Backend connection failed - Please start Python server', 'error');
     }
-    
-    // PHASE 2: Hold phase
-    const tMidHold = tOut + tHold/2;
-    const tEndHold = tOut + tHold;
-    
-    waypoints.push(findSpiralPoint(tMidHold, true, 'hold_mid')); // Mid-hold point
-    waypoints.push(findSpiralPoint(tEndHold, false, 'hold_end')); // End-hold point
-    
-    // PHASE 3: Inbound spiral - create COMPLETELY SEPARATE waypoints that mirror outbound
-    
-    // Add midpoint between hold_end and first inbound bounce
-    const tFirstInboundMid = tEndHold + 0.5 * dphi;
-    waypoints.push(findSpiralPoint(tFirstInboundMid, true, 'inbound_mid_0'));
-    
-    for(let bounce = 1; bounce <= p.N; bounce++) {
-      // Add bounce point - INBOUND BOUNCE (always separate)
-      const tBounce = tEndHold + bounce * dphi;
-      waypoints.push(findSpiralPoint(tBounce, false, `inbound_bounce_${bounce}`));
-      
-      // Add midpoint after bounce - but NOT after the final bounce (would be at spiral end)
-      if(bounce < p.N) {
-        const tMid = tEndHold + (bounce + 0.5) * dphi;
-        waypoints.push(findSpiralPoint(tMid, true, `inbound_mid_${bounce}`));
-      }
-    }
-    
-    return waypoints;
-  }
-  function computeWaypoints(){ waypointCache.length=0; const p=params(); for(let i=0;i<p.slices;i++) waypointCache.push(buildSlice(i,p)); }
-
-  function draw(showWP=false){
-    const p = params();
-    const isDebugMode = $('debugMode').checked;
-    const debugSliceAngle = +$('sliceAngle').value * Math.PI / 180; // Convert to radians
-    const dphi = 2 * Math.PI / p.slices;
-    const raw = makeSpiral({...p, dphi});
-    const traces = [];
-    const hue0 = 220, hue1 = 300, off = Math.PI / 2;
-    
-    if (isDebugMode) {
-      // Debug mode: show only one slice at the specified angle
-      const k = 0; // Always use first slice but rotate it to debug angle
-      const ang = Math.PI/2 + debugSliceAngle; // Add 90° offset to point north like full pattern
-      const c = Math.cos(ang), s = Math.sin(ang);
-      
-      // Draw the spiral slice
-      traces.push({
-        x: raw.map(pt => pt.x * c - pt.y * s),
-        y: raw.map(pt => pt.x * s + pt.y * c),
-        mode: 'lines',
-        line: {color: '#0a84ff', width: 3},
-        name: 'Debug Slice'
-      });
-      
-      // Draw radius line
-      traces.push({
-        x: [0, p.rHold * Math.cos(ang)],
-        y: [0, p.rHold * Math.sin(ang)],
-        mode: 'lines',
-        line: {color: '#ff9500', width: 2, dash: 'dot'},
-        name: 'Radius'
-      });
-      
-      // Show waypoints if requested
-      if (showWP && waypointCache.length > 0) {
-        const slice = waypointCache[0]; // Use first slice - waypoints are already correctly rotated by buildSlice
-        traces.push({
-          x: slice.map(w => w.x),
-          y: slice.map(w => w.y),
-          mode: 'markers',
-          marker: {color: '#ff0080', size: 6},
-          name: 'Waypoints'
-        });
-      }
-    } else {
-      // Full pattern mode: show all slices
-      for(let k = 0; k < p.slices; k++) {
-        const ang = off + k * dphi;
-        const c = Math.cos(ang), s = Math.sin(ang);
-        
-        traces.push({
-          x: raw.map(pt => pt.x * c - pt.y * s),
-          y: raw.map(pt => pt.x * s + pt.y * c),
-          mode: 'lines',
-          line: {color: `hsl(${hue0 + (hue1 - hue0) * (k / (p.slices - 1 || 1))} 80% 55%)`, width: 2}
-        });
-        
-        traces.push({
-          x: [0, p.rHold * Math.cos(ang)],
-          y: [0, p.rHold * Math.sin(ang)],
-          mode: 'lines',
-          line: {color: '#ff9500', width: 2, dash: 'dot'}
-        });
-      }
-      
-      if (showWP) {
-        waypointCache.forEach((slice, k) => {
-          const hue = hue0 + (hue1 - hue0) * (k / (p.slices - 1 || 1));
-          traces.push({
-            x: slice.map(w => w.x),
-            y: slice.map(w => w.y),
-            mode: 'markers',
-            marker: {color: `hsl(${hue} 80% 55%)`, size: 4}
-          });
-        });
-      }
-    }
-    
-    Plotly.newPlot('graph', traces, {
-      margin: {t: 20, l: 20, r: 20, b: 20},
-      paper_bgcolor: 'var(--bg)',
-      plot_bgcolor: 'var(--bg)',
-      showlegend: false,
-      xaxis: {
-        showgrid: true,
-        gridcolor: 'var(--grid)',
-        dtick: 2,
-        showticklabels: false,
-        zeroline: false,
-        scaleanchor: 'y',
-        scaleratio: 1
-      },
-      yaxis: {
-        showgrid: true,
-        gridcolor: 'var(--grid)',
-        dtick: 2,
-        showticklabels: false,
-        zeroline: false
-      }
-    });
   }
 
-  function refresh(drawWP){ draw(drawWP); waypointCache.length=0; updateLabels(); }
-
-  function downloadCSV(){ 
-    const center = parseCenter($("centerLL").value.trim()); 
-    if(!center) {
-      alert('Enter center lat,lon');
-      return;
-    }
-    
-    // Use the EXACT same algorithm as the designer interface
-    const p = params();
-    const isDebugMode = $('debugMode').checked;
-    let spiralPath = [];
-    
-    if (isDebugMode) {
-      // Debug mode: generate one slice at the specified angle
-      const debugSliceAngle = +$('sliceAngle').value * Math.PI / 180;
-      const sliceIndex = Math.round(debugSliceAngle / (2 * Math.PI / p.slices)) % p.slices;
-      computeWaypoints(); // Generate waypoints using designer algorithm
-      if (waypointCache.length > 0) {
-        spiralPath = waypointCache[sliceIndex] || waypointCache[0];
-        console.log(`Debug mode: Generated ${spiralPath.length} waypoints for slice ${sliceIndex}`);
-        console.log('First few waypoints:', spiralPath.slice(0, 5).map(wp => ({id: wp.id, phase: wp.phase})));
-        
-        // Rotate to the exact debug angle
-        const actualSliceAngle = sliceIndex * (2 * Math.PI / p.slices);
-        const rotationDiff = debugSliceAngle - actualSliceAngle;
-        spiralPath = spiralPath.map(wp => ({
-          x: wp.x * Math.cos(rotationDiff) - wp.y * Math.sin(rotationDiff),
-          y: wp.x * Math.sin(rotationDiff) + wp.y * Math.cos(rotationDiff),
-          curve: wp.curve,
-          phase: wp.phase,
-          id: wp.id
-        }));
-      }
-    } else {
-      // Full pattern mode: use all slices from designer algorithm
-      computeWaypoints(); // Generate waypoints using designer algorithm
-      waypointCache.forEach(slice => {
-        slice.forEach(wp => spiralPath.push(wp));
-      });
-      console.log(`Full pattern: Generated ${spiralPath.length} total waypoints from ${waypointCache.length} slices`);
-    }
-    
-    // Ensure minimum curve radius for all waypoints
-    spiralPath = spiralPath.map(wp => ({
-      ...wp,
-      curve: Math.max(wp.curve, 15) // Minimum 15ft curve radius - preserve all other properties
-    }));
-    
-    console.log(`After curve adjustment: ${spiralPath.length} waypoints`);
-    console.log('Sample waypoints with phases:', spiralPath.slice(0, 10).map(wp => ({id: wp.id, phase: wp.phase, x: wp.x.toFixed(1), y: wp.y.toFixed(1)})));
-    
-    // Litchi mission format header
-    const header = "latitude,longitude,altitude(ft),heading(deg),curvesize(ft),rotationdir,gimbalmode,gimbalpitchangle,altitudemode,speed(m/s),poi_latitude,poi_longitude,poi_altitude(ft),poi_altitudemode,photo_timeinterval,photo_distinterval";
-    const rows = [header];
-    
-    // Generate optimized waypoints with curves
-    spiralPath.forEach((wp, i) => {
-      const {lat, lon} = xy2ll(wp.x, wp.y, center.lat, center.lon);
-      
-      // Round coordinates to proper precision
-      const latitude = Math.round(lat * 100000) / 100000;
-      const longitude = Math.round(lon * 100000) / 100000;
-      
-      // Calculate altitude based on distance from center
-      const distFromCenter = Math.sqrt(wp.x * wp.x + wp.y * wp.y);
-      const baseAltitude = 70;
-      const altitude = Math.round((baseAltitude + (distFromCenter * 0.8)) * 100) / 100;
-      
-      // Calculate heading to next waypoint
-      let heading = 0;
-      if (i < spiralPath.length - 1) {
-        const next = spiralPath[i + 1];
-        const dx = next.x - wp.x;
-        const dy = next.y - wp.y;
-        heading = Math.round(((Math.atan2(dx, dy) * 180 / Math.PI) + 360) % 360);
-      }
-      
-      // Use curve radius from spiral calculation
-      const curveSizeMeters = Math.round((wp.curve * FT2M) * 100) / 100;
-      
-      // Calculate gimbal pitch based on waypoint position (safe curve: -35° to -21° to -35°)
-      const progress = i / (spiralPath.length - 1); // 0 to 1 across all waypoints
-      const gimbalPitch = Math.round(-35 + 14 * Math.sin(progress * Math.PI)); // Smooth curve from -35 to -21 back to -35
-      
-      // Create waypoint row
-      const row = [
-        latitude,
-        longitude,  
-        altitude,
-        heading,
-        curveSizeMeters,
-        0,                          // rotationdir
-        2,                          // gimbalmode (focus POI)
-        gimbalPitch,                // gimbalpitchangle
-        0,                          // altitudemode
-        8.85,                       // speed(m/s)
-        center.lat,                 // poi_latitude
-        center.lon,                 // poi_longitude  
-        0,                          // poi_altitude
-        0,                          // poi_altitudemode
-        i === 0 ? 0 : 2.8,         // photo_timeinterval
-        0                           // photo_distinterval
-      ].join(',');
-      
-      rows.push(row);
-    });
-    
-    // Create and download the file
-    const blob = new Blob([rows.join('\n')], {type: 'text/csv'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `litchi_spiral_mission.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }
-
-  function parseCenter(txt){
-    // Enhanced parsing for multiple coordinate formats
-    txt = txt.trim();
-    
-    // Handle formats like "41.73218° N, 111.83979° W" or "41.73218°N, 111.83979°W"
-    const degreeMatch = txt.match(/(\d+\.?\d*)\s*°?\s*([NS])\s*,\s*(\d+\.?\d*)\s*°?\s*([EW])/i);
-    if (degreeMatch) {
-      let lat = parseFloat(degreeMatch[1]);
-      let lon = parseFloat(degreeMatch[3]);
-      
-      // Convert S to negative latitude, W to negative longitude
-      if (degreeMatch[2].toUpperCase() === 'S') lat = -lat;
-      if (degreeMatch[4].toUpperCase() === 'W') lon = -lon;
-      
-      return { lat, lon };
-    }
-    
-    // Handle simple decimal format like "41.73218, -111.83979"
-    const decimalMatch = txt.match(/([-+]?\d+\.?\d*)\s*,\s*([-+]?\d+\.?\d*)/);
-    if (decimalMatch) {
-      return {
-        lat: parseFloat(decimalMatch[1]),
-        lon: parseFloat(decimalMatch[2])
-      };
-    }
-    
-    return null;
-  }
-  function xy2ll(xFt,yFt,lat0,lon0){const xM=xFt*FT2M,yM=yFt*FT2M;const dLat=yM/EARTH_R, dLon=xM/(EARTH_R*Math.cos(lat0*Math.PI/180));return{lat:lat0+dLat*180/Math.PI,lon:lon0+dLon*180/Math.PI};}
-
-  refresh(false);
+  // Initialize
+  updateLabels();
+  checkHealth();
+  refresh();
 })();
 </script>
 </body>

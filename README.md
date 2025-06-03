@@ -245,4 +245,121 @@ Curve = min(80, 20 + (distance_from_center × 0.05))
 - **Coordinate Transform**: Polar to Cartesian with rotation
 - **Parameter Mapping**: Time t to spiral index via linear interpolation
 
-This documentation captures the complete technical journey and provides comprehensive context for future development phases. 
+This documentation captures the complete technical journey and provides comprehensive context for future development phases.
+
+# Bounded Spiral Designer
+
+A drone flight pattern generator that creates bounded spiral paths for aerial photography missions. The application generates Litchi-compatible CSV waypoint files with dynamic curve radii for smooth flight paths.
+
+## Architecture
+
+- **Frontend**: HTML5 with Plotly.js for visualization
+- **Backend**: Python Flask API with spiral generation logic
+- **Output**: Litchi CSV mission files
+
+## Features
+
+- Multiple spiral slices (configurable 1-10)
+- Adjustable bounce count and radii
+- Debug mode for single slice visualization
+- Dynamic curve radius calculation for smooth turns
+- GPS coordinate parsing (multiple formats)
+- Real-time visualization updates
+
+## Setup
+
+### Prerequisites
+
+- Python 3.7+
+- Web browser with JavaScript enabled
+
+### Installation
+
+1. Create and activate a virtual environment:
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+2. Install Python dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+3. Start the Python backend:
+```bash
+python app.py
+```
+The API will be available at `http://localhost:5001`
+
+4. Open `index.html` in your web browser
+
+### Usage
+
+1. **Configure Parameters**:
+   - Slices: Number of spiral segments (360°/value)
+   - Bounces: Number of outward spiral bounces
+   - Start radius: Initial spiral radius in feet
+   - Hold radius: Maximum spiral radius in feet
+
+2. **Set Center Coordinates**:
+   - Format: `41.73218, -111.83979` or `41.73218° N, 111.83979° W`
+
+3. **Generate Mission**:
+   - Click "Console Waypoints" to view waypoint data
+   - Click "Download CSV" to get Litchi mission file
+
+4. **Debug Mode**:
+   - Enable to visualize single slice at specific angle
+   - Use angle slider to rotate debug slice
+
+## API Endpoints
+
+- `POST /api/spiral-data` - Generate visualization data
+- `POST /api/waypoints` - Compute waypoint coordinates  
+- `POST /api/csv` - Generate Litchi CSV file
+- `POST /api/validate-center` - Validate GPS coordinates
+- `GET /api/health` - Backend health check
+
+## File Structure
+
+```
+├── app.py              # Flask backend API
+├── spiral_logic.py     # Core spiral generation logic
+├── index.html          # Frontend interface
+├── requirements.txt    # Python dependencies
+├── venv/              # Virtual environment (created during setup)
+└── README.md          # This file
+```
+
+## Integration with AWS
+
+The Python logic (`spiral_logic.py`) is designed to be easily integrated into larger codebases:
+
+```python
+from spiral_logic import SpiralDesigner
+
+designer = SpiralDesigner()
+waypoints = designer.compute_waypoints({
+    'slices': 6,
+    'N': 6, 
+    'r0': 1,
+    'rHold': 50
+})
+```
+
+## Troubleshooting
+
+- **"Backend connection failed"**: Ensure Python server is running on port 5001
+- **Port 5000 in use**: The app uses port 5001 to avoid conflicts with macOS AirPlay
+- **CORS errors**: The Flask app includes CORS headers for local development
+- **CSV download fails**: Check that center coordinates are valid
+
+## Development
+
+To add new features:
+
+1. Update `spiral_logic.py` for core functionality
+2. Add API endpoints in `app.py` 
+3. Update frontend JavaScript to use new endpoints
+4. Maintain the same parameter interface for compatibility 
