@@ -281,13 +281,18 @@
       computeWaypoints(); // Generate waypoints using designer algorithm
       if (waypointCache.length > 0) {
         spiralPath = waypointCache[sliceIndex] || waypointCache[0];
+        console.log(`Debug mode: Generated ${spiralPath.length} waypoints for slice ${sliceIndex}`);
+        console.log('First few waypoints:', spiralPath.slice(0, 5).map(wp => ({id: wp.id, phase: wp.phase})));
+        
         // Rotate to the exact debug angle
         const actualSliceAngle = sliceIndex * (2 * Math.PI / p.slices);
         const rotationDiff = debugSliceAngle - actualSliceAngle;
         spiralPath = spiralPath.map(wp => ({
           x: wp.x * Math.cos(rotationDiff) - wp.y * Math.sin(rotationDiff),
           y: wp.x * Math.sin(rotationDiff) + wp.y * Math.cos(rotationDiff),
-          curve: wp.curve
+          curve: wp.curve,
+          phase: wp.phase,
+          id: wp.id
         }));
       }
     } else {
@@ -296,13 +301,17 @@
       waypointCache.forEach(slice => {
         slice.forEach(wp => spiralPath.push(wp));
       });
+      console.log(`Full pattern: Generated ${spiralPath.length} total waypoints from ${waypointCache.length} slices`);
     }
     
     // Ensure minimum curve radius for all waypoints
     spiralPath = spiralPath.map(wp => ({
       ...wp,
-      curve: Math.max(wp.curve, 15) // Minimum 15ft curve radius
+      curve: Math.max(wp.curve, 15) // Minimum 15ft curve radius - preserve all other properties
     }));
+    
+    console.log(`After curve adjustment: ${spiralPath.length} waypoints`);
+    console.log('Sample waypoints with phases:', spiralPath.slice(0, 10).map(wp => ({id: wp.id, phase: wp.phase, x: wp.x.toFixed(1), y: wp.y.toFixed(1)})));
     
     // Litchi mission format header
     const header = "latitude,longitude,altitude(ft),heading(deg),curvesize(ft),rotationdir,gimbalmode,gimbalpitchangle,altitudemode,speed(m/s),poi_latitude,poi_longitude,poi_altitude(ft),poi_altitudemode,photo_timeinterval,photo_distinterval";
