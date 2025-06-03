@@ -101,7 +101,7 @@ def get_waypoints():
 @app.route('/api/csv', methods=['POST'])
 def generate_csv():
     """
-    Generate CSV file for Litchi mission
+    Generate CSV file for Litchi mission (all slices combined)
     Expected JSON payload:
     {
         "slices": 6,
@@ -144,7 +144,7 @@ def generate_csv():
             csv_bytes,
             mimetype='text/csv',
             as_attachment=True,
-            download_name='litchi_spiral_mission.csv'
+            download_name='litchi_spiral_mission_master.csv'
         )
     
     except ValueError as ve:
@@ -152,6 +152,62 @@ def generate_csv():
         return jsonify({'error': str(ve)}), 400
     except Exception as e:
         logger.error(f"Error generating CSV: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/csv/battery/<int:battery_number>', methods=['POST'])
+def generate_battery_csv(battery_number):
+    """
+    Generate CSV file for a specific battery/slice
+    Expected JSON payload:
+    {
+        "slices": 6,
+        "N": 6, 
+        "r0": 1,
+        "rHold": 50,
+        "center": "41.73218, -111.83979"
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        # Validate required parameters
+        required_params = ['slices', 'N', 'r0', 'rHold', 'center']
+        for param in required_params:
+            if param not in data:
+                return jsonify({'error': f'Missing required parameter: {param}'}), 400
+        
+        params = {
+            'slices': int(data['slices']),
+            'N': int(data['N']),
+            'r0': float(data['r0']),
+            'rHold': float(data['rHold'])
+        }
+        
+        # Validate battery number
+        if battery_number < 1 or battery_number > params['slices']:
+            return jsonify({'error': f'Battery number must be between 1 and {params["slices"]}'}), 400
+        
+        center_str = data['center']
+        
+        # Generate CSV content for specific battery
+        csv_content = designer.generate_battery_csv(params, center_str, battery_number - 1)  # Convert to 0-based index
+        
+        # Create file-like object
+        csv_buffer = io.StringIO(csv_content)
+        csv_bytes = io.BytesIO(csv_buffer.getvalue().encode('utf-8'))
+        
+        return send_file(
+            csv_bytes,
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name=f'litchi_spiral_battery_{battery_number}.csv'
+        )
+    
+    except ValueError as ve:
+        logger.error(f"Validation error: {str(ve)}")
+        return jsonify({'error': str(ve)}), 400
+    except Exception as e:
+        logger.error(f"Error generating battery CSV: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/health', methods=['GET'])
@@ -195,7 +251,8 @@ if __name__ == '__main__':
     print("Available endpoints:")
     print("  POST /api/spiral-data - Generate spiral visualization data")
     print("  POST /api/waypoints - Compute waypoints")
-    print("  POST /api/csv - Generate CSV file")
+    print("  POST /api/csv - Generate master CSV file (all batteries)")
+    print("  POST /api/csv/battery/<number> - Generate CSV file for specific battery")
     print("  POST /api/validate-center - Validate center coordinates")
     print("  GET  /api/health - Health check")
     

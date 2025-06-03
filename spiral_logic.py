@@ -378,6 +378,78 @@ class SpiralDesigner:
         
         return '\n'.join(rows)
 
+    def generate_battery_csv(self, params: Dict, center_str: str, battery_index: int) -> str:
+        """Generate CSV for a specific battery/slice (0-based index)"""
+        center = self.parse_center(center_str)
+        if not center:
+            raise ValueError("Invalid center coordinates")
+            
+        # Validate battery index
+        if battery_index < 0 or battery_index >= params['slices']:
+            raise ValueError(f"Battery index must be between 0 and {params['slices'] - 1}")
+        
+        # Generate waypoints for all slices, then extract the specific one
+        all_waypoints = self.compute_waypoints(params)
+        spiral_path = all_waypoints[battery_index]
+        
+        # Ensure minimum curve radius
+        for wp in spiral_path:
+            wp['curve'] = max(wp['curve'], 15)  # Minimum 15ft curve radius
+        
+        # Generate CSV content
+        header = "latitude,longitude,altitude(ft),heading(deg),curvesize(ft),rotationdir,gimbalmode,gimbalpitchangle,altitudemode,speed(m/s),poi_latitude,poi_longitude,poi_altitude(ft),poi_altitudemode,photo_timeinterval,photo_distinterval"
+        rows = [header]
+        
+        for i, wp in enumerate(spiral_path):
+            # Convert to lat/lon
+            coords = self.xy_to_lat_lon(wp['x'], wp['y'], center['lat'], center['lon'])
+            latitude = round(coords['lat'] * 100000) / 100000
+            longitude = round(coords['lon'] * 100000) / 100000
+            
+            # Calculate altitude based on distance from center
+            dist_from_center = math.sqrt(wp['x']**2 + wp['y']**2)
+            base_altitude = 70
+            altitude = round((base_altitude + (dist_from_center * 0.8)) * 100) / 100
+            
+            # Calculate heading to next waypoint
+            heading = 0
+            if i < len(spiral_path) - 1:
+                next_wp = spiral_path[i + 1]
+                dx = next_wp['x'] - wp['x']
+                dy = next_wp['y'] - wp['y']
+                heading = round(((math.atan2(dx, dy) * 180 / math.pi) + 360) % 360)
+            
+            # Use curve radius from spiral calculation
+            curve_size_meters = round((wp['curve'] * self.FT2M) * 100) / 100
+            
+            # Calculate gimbal pitch based on waypoint position
+            progress = i / (len(spiral_path) - 1) if len(spiral_path) > 1 else 0
+            gimbal_pitch = round(-35 + 14 * math.sin(progress * math.pi))
+            
+            # Create row
+            row = [
+                latitude,
+                longitude,
+                altitude,
+                heading,
+                curve_size_meters,
+                0,                      # rotationdir
+                2,                      # gimbalmode
+                gimbal_pitch,           # gimbalpitchangle
+                0,                      # altitudemode
+                8.85,                   # speed(m/s)
+                center['lat'],          # poi_latitude
+                center['lon'],          # poi_longitude
+                0,                      # poi_altitude
+                0,                      # poi_altitudemode
+                0 if i == 0 else 2.8,  # photo_timeinterval
+                0                       # photo_distinterval
+            ]
+            
+            rows.append(','.join(map(str, row)))
+        
+        return '\n'.join(rows)
+
 # Example usage and testing
 if __name__ == "__main__":
     designer = SpiralDesigner()
