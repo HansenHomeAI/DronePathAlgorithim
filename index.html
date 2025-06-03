@@ -23,10 +23,7 @@
     .param-display{font-size:.75rem;color:var(--muted);margin-top:.2rem}
     button{padding:.55rem 1.1rem;border:none;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer;font-size:.85rem}
     button:disabled{background:#666;cursor:not-allowed}
-    button.master{background:#ff6b35;}
-    .download-section{grid-column:1/-1;display:flex;flex-direction:column;gap:1rem}
-    .download-row{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap}
-    .download-label{font-size:.9rem;font-weight:500;color:var(--muted);text-align:center;margin-bottom:.5rem}
+    #btnRow{grid-column:1/-1;display:flex;gap:1rem;justify-content:center}
     .status{font-size:.8rem;color:var(--muted);text-align:center;margin-top:0.5rem}
     .error{color:#ff6b6b}
     .success{color:#51cf66}
@@ -51,12 +48,8 @@
         </div>
       </div>
       <div class="control" style="grid-column:1/-1"><label>Center (lat, lon)</label><input id="centerLL" type="text" placeholder="41.73218° N, 111.83979° W  or  41.73218, -111.83979"></div>
-      <div class="download-section">
-        <div class="download-label">Flight Segment Downloads</div>
-        <div class="download-row" id="batteryButtons"></div>
-        <div class="download-row">
-          <button id="masterBtn" class="master">Download Master CSV (All Batteries)</button>
-        </div>
+      <div id="btnRow">
+        <button id="csvBtn">Download CSV</button>
       </div>
       <div class="status" id="status">Ready</div>
     </section>
@@ -73,11 +66,10 @@
   const lbl={batteryVal:$('batteryVal'),sizeVal:$('sizeVal')};
   const statusEl = $('status');
   const paramDisplay = $('paramDisplay');
-  const batteryButtons = $('batteryButtons');
   
   // Event listeners for controls
   [batteriesS, sizeS].forEach(el=>el.addEventListener('input',()=>refresh()));
-  $('masterBtn').addEventListener('click', downloadMasterCSV);
+  $('csvBtn').addEventListener('click', downloadCSV);
 
   // Utility functions
   const setStatus = (msg, type = 'info') => {
@@ -86,10 +78,7 @@
   };
   
   const setButtonsEnabled = (enabled) => {
-    $('masterBtn').disabled = !enabled;
-    // Also disable all battery buttons
-    const buttons = batteryButtons.querySelectorAll('button');
-    buttons.forEach(btn => btn.disabled = !enabled);
+    $('csvBtn').disabled = !enabled;
   };
 
   // Validate and get battery count
@@ -107,9 +96,9 @@
   };
 
   // Calculate individual parameters from size slider
-  const calculateParams = (sizeValue, batteryOverride = null) => {
+  const calculateParams = (sizeValue) => {
     const size = parseFloat(sizeValue);
-    const batteries = batteryOverride || getBatteryCount();
+    const batteries = getBatteryCount();
     
     // Linear interpolation for each parameter
     const r0 = 150 + (size / 100) * (500 - 150);      // 150ft → 500ft
@@ -120,26 +109,11 @@
       slices: batteries,  // batteries = slices for the backend
       N: N,
       r0: Math.round(r0 * 10) / 10,  // Round to 1 decimal
-      rHold: Math.round(rHold),       // Round to nearest integer
-      debugMode: false,
-      debugAngle: 0
+      rHold: Math.round(rHold)        // Round to nearest integer
     };
   };
 
   const params = () => calculateParams(sizeS.value);
-  
-  // Create battery download buttons
-  const createBatteryButtons = () => {
-    const batteries = getBatteryCount();
-    batteryButtons.innerHTML = '';
-    
-    for (let i = 1; i <= batteries; i++) {
-      const btn = document.createElement('button');
-      btn.textContent = `Battery ${i} CSV`;
-      btn.addEventListener('click', () => downloadBatteryCSV(i));
-      batteryButtons.appendChild(btn);
-    }
-  };
   
   const updateLabels = () => {
     const batteries = getBatteryCount();
@@ -158,9 +132,6 @@
     // Update parameter display
     const p = calculateParams(size);
     paramDisplay.textContent = `Start: ${p.r0}ft • Hold: ${p.rHold}ft • Bounces: ${p.N}`;
-    
-    // Update battery buttons
-    createBatteryButtons();
   };
 
   // API functions
@@ -205,7 +176,7 @@
     }
   }
 
-  async function downloadBatteryCSV(batteryNumber) {
+  async function downloadCSV() {
     try {
       const centerVal = $('centerLL').value.trim();
       if (!centerVal) {
@@ -213,50 +184,7 @@
         return;
       }
       
-      setStatus(`Generating Battery ${batteryNumber} CSV...`);
-      setButtonsEnabled(false);
-      
-      // Calculate the angle for this specific battery/slice
-      const batteries = getBatteryCount();
-      const sliceAngle = ((batteryNumber - 1) * 360 / batteries) % 360;
-      
-      const requestData = {
-        ...calculateParams(sizeS.value, 1), // Force to 1 slice for individual download
-        center: centerVal,
-        debugMode: true,  // Use debug mode for single slice
-        debugAngle: sliceAngle
-      };
-      
-      const response = await apiCall('/csv', requestData);
-      
-      // Create blob and download
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `battery_${batteryNumber}_spiral_mission.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-      
-      setStatus(`Battery ${batteryNumber} CSV downloaded successfully`, 'success');
-    } catch (error) {
-      setStatus(`Failed to generate Battery ${batteryNumber} CSV`, 'error');
-    } finally {
-      setButtonsEnabled(true);
-    }
-  }
-
-  async function downloadMasterCSV() {
-    try {
-      const centerVal = $('centerLL').value.trim();
-      if (!centerVal) {
-        alert('Please enter center coordinates');
-        return;
-      }
-      
-      setStatus('Generating Master CSV...');
+      setStatus('Generating CSV...');
       setButtonsEnabled(false);
       
       const requestData = {
@@ -271,15 +199,15 @@
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'master_spiral_mission.csv';
+      a.download = 'litchi_spiral_mission.csv';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
       
-      setStatus('Master CSV downloaded successfully', 'success');
+      setStatus('CSV downloaded successfully', 'success');
     } catch (error) {
-      setStatus('Failed to generate Master CSV', 'error');
+      setStatus('Failed to generate CSV', 'error');
     } finally {
       setButtonsEnabled(true);
     }
