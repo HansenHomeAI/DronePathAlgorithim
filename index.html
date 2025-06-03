@@ -96,7 +96,7 @@
     const waypoints = [];
     
     // Helper to find spiral point closest to parameter t
-    const findSpiralPoint = (targetT) => {
+    const findSpiralPoint = (targetT, isMidpoint = false) => {
       const targetIndex = Math.round(targetT * (spiralPts.length - 1) / tTot);
       const clampedIndex = Math.max(0, Math.min(spiralPts.length - 1, targetIndex));
       const pt = spiralPts[clampedIndex];
@@ -105,41 +105,57 @@
       const rotX = pt.x * Math.cos(off) - pt.y * Math.sin(off);
       const rotY = pt.x * Math.sin(off) + pt.y * Math.cos(off);
       
-      return {x: rotX, y: rotY, curve: 20};
+      // Higher curve radius for midpoints, standard for bounces
+      const curveRadius = isMidpoint ? 35 : 20;
+      
+      return {x: rotX, y: rotY, curve: curveRadius};
     };
     
     // PHASE 1: Outward spiral - sample at key parameter values
     waypoints.push(findSpiralPoint(0)); // Start point
     
     for(let bounce = 1; bounce <= p.N; bounce++) {
-      // Add midpoint before bounce (except for first)
+      // Add midpoint before bounce (except for first) - OUTBOUND MIDPOINT
       if(bounce > 1) {
         const tMid = (bounce - 0.5) * dphi;
-        waypoints.push(findSpiralPoint(tMid));
+        const midpoint = findSpiralPoint(tMid, true);
+        midpoint.phase = 'outbound'; // Mark as outbound phase
+        waypoints.push(midpoint);
       }
       
-      // Add bounce point
+      // Add bounce point - OUTBOUND BOUNCE
       const tBounce = bounce * dphi;
-      waypoints.push(findSpiralPoint(tBounce));
+      const bouncePoint = findSpiralPoint(tBounce);
+      bouncePoint.phase = 'outbound';
+      waypoints.push(bouncePoint);
     }
     
     // PHASE 2: Hold phase
     const tMidHold = tOut + tHold/2;
     const tEndHold = tOut + tHold;
     
-    waypoints.push(findSpiralPoint(tMidHold)); // Mid-hold point
-    waypoints.push(findSpiralPoint(tEndHold)); // End-hold point
+    const holdMid = findSpiralPoint(tMidHold, true);
+    holdMid.phase = 'hold';
+    waypoints.push(holdMid); // Mid-hold point
     
-    // PHASE 3: Inward spiral
+    const holdEnd = findSpiralPoint(tEndHold);
+    holdEnd.phase = 'hold';
+    waypoints.push(holdEnd); // End-hold point
+    
+    // PHASE 3: Inward spiral - ALWAYS CREATE SEPARATE WAYPOINTS
     for(let bounce = 1; bounce <= p.N; bounce++) {
-      // Add bounce point
+      // Add bounce point - INBOUND BOUNCE
       const tBounce = tEndHold + bounce * dphi;
-      waypoints.push(findSpiralPoint(tBounce));
+      const bouncePoint = findSpiralPoint(tBounce);
+      bouncePoint.phase = 'inbound';
+      waypoints.push(bouncePoint);
       
-      // Add midpoint after bounce (except for last)
+      // Add midpoint after bounce (except for last) - INBOUND MIDPOINT
       if(bounce < p.N) {
         const tMid = tEndHold + (bounce + 0.5) * dphi;
-        waypoints.push(findSpiralPoint(tMid));
+        const midpoint = findSpiralPoint(tMid, true);
+        midpoint.phase = 'inbound'; // Mark as inbound phase
+        waypoints.push(midpoint);
       }
     }
     
