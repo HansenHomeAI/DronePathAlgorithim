@@ -96,7 +96,7 @@
     const waypoints = [];
     
     // Helper to find spiral point closest to parameter t
-    const findSpiralPoint = (targetT, isMidpoint = false, phase = 'unknown') => {
+    const findSpiralPoint = (targetT, isMidpoint = false, label = '') => {
       const targetIndex = Math.round(targetT * (spiralPts.length - 1) / tTot);
       const clampedIndex = Math.max(0, Math.min(spiralPts.length - 1, targetIndex));
       const pt = spiralPts[clampedIndex];
@@ -108,51 +108,58 @@
       // Higher curve radius for midpoints, standard for bounces
       const curveRadius = isMidpoint ? 35 : 20;
       
-      // Create unique waypoint object for each phase
       return {
         x: rotX, 
         y: rotY, 
         curve: curveRadius,
-        phase: phase,
-        t: targetT, // Add parameter for debugging
-        id: `${phase}_${targetT.toFixed(3)}` // Unique ID
+        t: targetT,
+        label: label
       };
     };
     
-    // PHASE 1: Outward spiral - collect all outbound waypoints
-    waypoints.push(findSpiralPoint(0, false, 'outbound_start')); // Start point
+    // Generate ALL waypoints in parameter order (actual flight sequence)
+    const waypoints_to_generate = [];
+    
+    // OUTWARD SPIRAL PHASE
+    waypoints_to_generate.push({t: 0, isMid: false, label: 'start'});
     
     for(let bounce = 1; bounce <= p.N; bounce++) {
-      // Add midpoint before bounce (except for first) - OUTBOUND MIDPOINT
+      // Add midpoint before bounce (except for first)
       if(bounce > 1) {
         const tMid = (bounce - 0.5) * dphi;
-        waypoints.push(findSpiralPoint(tMid, true, `outbound_mid_${bounce}`));
+        waypoints_to_generate.push({t: tMid, isMid: true, label: `out_mid_${bounce}`});
       }
       
-      // Add bounce point - OUTBOUND BOUNCE
+      // Add bounce point
       const tBounce = bounce * dphi;
-      waypoints.push(findSpiralPoint(tBounce, false, `outbound_bounce_${bounce}`));
+      waypoints_to_generate.push({t: tBounce, isMid: false, label: `out_bounce_${bounce}`});
     }
     
-    // PHASE 2: Hold phase
+    // HOLD PHASE
     const tMidHold = tOut + tHold/2;
     const tEndHold = tOut + tHold;
+    waypoints_to_generate.push({t: tMidHold, isMid: true, label: 'hold_mid'});
+    waypoints_to_generate.push({t: tEndHold, isMid: false, label: 'hold_end'});
     
-    waypoints.push(findSpiralPoint(tMidHold, true, 'hold_mid')); // Mid-hold point
-    waypoints.push(findSpiralPoint(tEndHold, false, 'hold_end')); // End-hold point
-    
-    // PHASE 3: Inbound spiral - create COMPLETELY SEPARATE waypoints
+    // INWARD SPIRAL PHASE
     for(let bounce = 1; bounce <= p.N; bounce++) {
-      // Add bounce point - INBOUND BOUNCE (always separate)
+      // Add bounce point
       const tBounce = tEndHold + bounce * dphi;
-      waypoints.push(findSpiralPoint(tBounce, false, `inbound_bounce_${bounce}`));
+      waypoints_to_generate.push({t: tBounce, isMid: false, label: `in_bounce_${bounce}`});
       
-      // Add midpoint after bounce (except for last) - INBOUND MIDPOINT (always separate)
+      // Add midpoint after bounce (except for last)
       if(bounce < p.N) {
         const tMid = tEndHold + (bounce + 0.5) * dphi;
-        waypoints.push(findSpiralPoint(tMid, true, `inbound_mid_${bounce}`));
+        waypoints_to_generate.push({t: tMid, isMid: true, label: `in_mid_${bounce}`});
       }
     }
+    
+    // Sort by parameter t and generate waypoints in flight order
+    waypoints_to_generate.sort((a, b) => a.t - b.t);
+    
+    waypoints_to_generate.forEach(wp => {
+      waypoints.push(findSpiralPoint(wp.t, wp.isMid, wp.label));
+    });
     
     return waypoints;
   }
