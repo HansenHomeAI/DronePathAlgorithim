@@ -109,6 +109,8 @@ def generate_csv():
         "r0": 1,
         "rHold": 50,
         "center": "41.73218, -111.83979",
+        "minHeight": 100,
+        "maxHeight": 400,
         "debugMode": false,
         "debugAngle": 0
     }
@@ -130,11 +132,13 @@ def generate_csv():
         }
         
         center_str = data['center']
+        min_height = float(data.get('minHeight', 100.0))
+        max_height = float(data['maxHeight']) if data.get('maxHeight') else None
         debug_mode = data.get('debugMode', False)
         debug_angle = float(data.get('debugAngle', 0))
         
         # Generate CSV content
-        csv_content = designer.generate_csv(params, center_str, debug_mode, debug_angle)
+        csv_content = designer.generate_csv(params, center_str, min_height, max_height, debug_mode, debug_angle)
         
         # Create file-like object
         csv_buffer = io.StringIO(csv_content)
@@ -164,7 +168,9 @@ def generate_battery_csv(battery_number):
         "N": 6, 
         "r0": 1,
         "rHold": 50,
-        "center": "41.73218, -111.83979"
+        "center": "41.73218, -111.83979",
+        "minHeight": 100,
+        "maxHeight": 400
     }
     """
     try:
@@ -188,9 +194,11 @@ def generate_battery_csv(battery_number):
             return jsonify({'error': f'Battery number must be between 1 and {params["slices"]}'}), 400
         
         center_str = data['center']
+        min_height = float(data.get('minHeight', 100.0))
+        max_height = float(data['maxHeight']) if data.get('maxHeight') else None
         
         # Generate CSV content for specific battery
-        csv_content = designer.generate_battery_csv(params, center_str, battery_number - 1)  # Convert to 0-based index
+        csv_content = designer.generate_battery_csv(params, center_str, battery_number - 1, min_height, max_height)  # Convert to 0-based index
         
         # Create file-like object
         csv_buffer = io.StringIO(csv_content)
@@ -245,6 +253,35 @@ def validate_center():
         logger.error(f"Error validating center: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/elevation', methods=['POST'])
+def get_elevation():
+    """
+    Get elevation for center coordinates
+    Expected JSON payload:
+    {
+        "center": "41.73218, -111.83979"
+    }
+    """
+    try:
+        data = request.get_json()
+        center_str = data.get('center', '')
+        
+        center = designer.parse_center(center_str)
+        if not center:
+            return jsonify({'error': 'Invalid coordinate format'}), 400
+        
+        elevation_feet = designer.get_elevation_feet(center['lat'], center['lon'])
+        
+        return jsonify({
+            'elevation_feet': round(elevation_feet, 2),
+            'elevation_meters': round(elevation_feet * 0.3048, 2),
+            'coordinates': center
+        })
+    
+    except Exception as e:
+        logger.error(f"Error getting elevation: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     # Run the Flask app
     print("Starting Spiral Designer API...")
@@ -253,6 +290,7 @@ if __name__ == '__main__':
     print("  POST /api/waypoints - Compute waypoints")
     print("  POST /api/csv - Generate master CSV file (all batteries)")
     print("  POST /api/csv/battery/<number> - Generate CSV file for specific battery")
+    print("  POST /api/elevation - Get elevation for coordinates")
     print("  POST /api/validate-center - Validate center coordinates")
     print("  GET  /api/health - Health check")
     

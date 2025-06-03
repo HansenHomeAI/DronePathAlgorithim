@@ -2,6 +2,8 @@ import math
 import json
 import csv
 import io
+import os
+import requests
 from typing import List, Dict, Tuple, Optional
 
 class SpiralDesigner:
@@ -17,6 +19,86 @@ class SpiralDesigner:
     
     def __init__(self):
         self.waypoint_cache = []
+        self.elevation_cache = {}  # Cache for elevation data
+        self.api_key = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+    
+    def haversine_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """Calculate distance between two lat/lon points in meters"""
+        R = 6371000.0  # Earth radius in meters
+        dLat = math.radians(lat2 - lat1)
+        dLon = math.radians(lon2 - lon1)
+        a = (math.sin(dLat/2)**2 +
+             math.cos(math.radians(lat1)) *
+             math.cos(math.radians(lat2)) *
+             math.sin(dLon/2)**2)
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+        return R * c
+    
+    def get_elevation_feet(self, lat: float, lon: float) -> float:
+        """Get elevation in feet for a single coordinate using Google Maps API"""
+        # Check cache first
+        cache_key = f"{lat:.6f},{lon:.6f}"
+        if cache_key in self.elevation_cache:
+            return self.elevation_cache[cache_key]
+        
+        if not self.api_key:
+            # Return a default elevation if no API key
+            return 4500.0  # Default elevation in feet
+        
+        try:
+            url = f"https://maps.googleapis.com/maps/api/elevation/json?locations={lat},{lon}&key={self.api_key}"
+            response = requests.get(url, timeout=10)
+            
+            if response.status_code != 200:
+                raise ValueError(f"Elevation HTTP error {response.status_code}")
+            
+            data = response.json()
+            if data["status"] != "OK" or not data["results"]:
+                raise ValueError(f"Elevation unavailable: {data['status']}")
+            
+            elevation_meters = data["results"][0]["elevation"]
+            elevation_feet = elevation_meters * 3.28084
+            
+            # Cache the result
+            self.elevation_cache[cache_key] = elevation_feet
+            return elevation_feet
+            
+        except Exception as e:
+            print(f"Elevation API error for {lat},{lon}: {str(e)}")
+            # Return default elevation on error
+            return 4500.0
+    
+    def get_elevations_feet_optimized(self, locations: List[Tuple[float, float]]) -> List[float]:
+        """
+        Get elevations for multiple locations with 15-foot optimization.
+        If two waypoints are within 15 feet of each other, share elevation data.
+        """
+        if not locations:
+            return []
+        
+        elevations = []
+        processed_locations = []
+        
+        for i, (lat, lon) in enumerate(locations):
+            # Check if we can reuse elevation from a nearby processed location
+            reused_elevation = None
+            
+            for j, (prev_lat, prev_lon, prev_elev) in enumerate(processed_locations):
+                distance_ft = self.haversine_distance(lat, lon, prev_lat, prev_lon) * 3.28084
+                if distance_ft <= 15.0:  # Within 15 feet
+                    reused_elevation = prev_elev
+                    break
+            
+            if reused_elevation is not None:
+                elevations.append(reused_elevation)
+                processed_locations.append((lat, lon, reused_elevation))
+            else:
+                # Need to fetch new elevation
+                elevation = self.get_elevation_feet(lat, lon)
+                elevations.append(elevation)
+                processed_locations.append((lat, lon, elevation))
+        
+        return elevations
     
     def distance(self, a: Dict, b: Dict) -> float:
         """Calculate distance between two points"""
@@ -280,11 +362,14 @@ class SpiralDesigner:
         
         return {'traces': traces}
     
-    def generate_csv(self, params: Dict, center_str: str, debug_mode: bool = False, debug_angle: float = 0) -> str:
-        """Generate CSV for Litchi mission"""
+    def generate_csv(self, params: Dict, center_str: str, min_height: float = 100.0, max_height: float = None, debug_mode: bool = False, debug_angle: float = 0) -> str:
+        """Generate CSV for Litchi mission with elevation-aware altitudes"""
         center = self.parse_center(center_str)
         if not center:
             raise ValueError("Invalid center coordinates")
+        
+        # Get takeoff elevation for reference
+        takeoff_elevation_feet = self.get_elevation_feet(center['lat'], center['lon'])
         
         # Generate waypoints using the same algorithm as the designer
         spiral_path = []
@@ -324,6 +409,15 @@ class SpiralDesigner:
         for wp in spiral_path:
             wp['curve'] = max(wp['curve'], 15)  # Minimum 15ft curve radius
         
+        # Convert waypoints to lat/lon and get optimized elevations
+        locations = []
+        for wp in spiral_path:
+            coords = self.xy_to_lat_lon(wp['x'], wp['y'], center['lat'], center['lon'])
+            locations.append((coords['lat'], coords['lon']))
+        
+        # Get elevations with optimization
+        ground_elevations = self.get_elevations_feet_optimized(locations)
+        
         # Generate CSV content
         header = "latitude,longitude,altitude(ft),heading(deg),curvesize(ft),rotationdir,gimbalmode,gimbalpitchangle,altitudemode,speed(m/s),poi_latitude,poi_longitude,poi_altitude(ft),poi_altitudemode,photo_timeinterval,photo_distinterval"
         rows = [header]
@@ -334,10 +428,29 @@ class SpiralDesigner:
             latitude = round(coords['lat'] * 100000) / 100000
             longitude = round(coords['lon'] * 100000) / 100000
             
-            # Calculate altitude based on distance from center
+            # Calculate elevation-aware altitude
+            ground_elevation = ground_elevations[i]
+            local_ground_offset = ground_elevation - takeoff_elevation_feet
+            if local_ground_offset < 0:
+                local_ground_offset = 0
+            
+            # Calculate desired AGL based on distance from center
             dist_from_center = math.sqrt(wp['x']**2 + wp['y']**2)
-            base_altitude = 70
-            altitude = round((base_altitude + (dist_from_center * 0.8)) * 100) / 100
+            base_agl = min_height
+            agl_increment = dist_from_center * 0.8  # Increase AGL with distance
+            desired_agl = base_agl + agl_increment
+            
+            # Calculate final altitude
+            final_altitude = local_ground_offset + desired_agl
+            
+            # Apply max height constraint if specified
+            if max_height is not None:
+                adjusted_max_height = max_height - takeoff_elevation_feet
+                current_agl = final_altitude - ground_elevation
+                if current_agl > adjusted_max_height:
+                    final_altitude = ground_elevation + adjusted_max_height
+            
+            altitude = round(final_altitude * 100) / 100
             
             # Calculate heading to next waypoint
             heading = 0
@@ -378,8 +491,8 @@ class SpiralDesigner:
         
         return '\n'.join(rows)
 
-    def generate_battery_csv(self, params: Dict, center_str: str, battery_index: int) -> str:
-        """Generate CSV for a specific battery/slice (0-based index)"""
+    def generate_battery_csv(self, params: Dict, center_str: str, battery_index: int, min_height: float = 100.0, max_height: float = None) -> str:
+        """Generate CSV for a specific battery/slice (0-based index) with elevation-aware altitudes"""
         center = self.parse_center(center_str)
         if not center:
             raise ValueError("Invalid center coordinates")
@@ -388,6 +501,9 @@ class SpiralDesigner:
         if battery_index < 0 or battery_index >= params['slices']:
             raise ValueError(f"Battery index must be between 0 and {params['slices'] - 1}")
         
+        # Get takeoff elevation for reference
+        takeoff_elevation_feet = self.get_elevation_feet(center['lat'], center['lon'])
+        
         # Generate waypoints for all slices, then extract the specific one
         all_waypoints = self.compute_waypoints(params)
         spiral_path = all_waypoints[battery_index]
@@ -395,6 +511,15 @@ class SpiralDesigner:
         # Ensure minimum curve radius
         for wp in spiral_path:
             wp['curve'] = max(wp['curve'], 15)  # Minimum 15ft curve radius
+        
+        # Convert waypoints to lat/lon and get optimized elevations
+        locations = []
+        for wp in spiral_path:
+            coords = self.xy_to_lat_lon(wp['x'], wp['y'], center['lat'], center['lon'])
+            locations.append((coords['lat'], coords['lon']))
+        
+        # Get elevations with optimization
+        ground_elevations = self.get_elevations_feet_optimized(locations)
         
         # Generate CSV content
         header = "latitude,longitude,altitude(ft),heading(deg),curvesize(ft),rotationdir,gimbalmode,gimbalpitchangle,altitudemode,speed(m/s),poi_latitude,poi_longitude,poi_altitude(ft),poi_altitudemode,photo_timeinterval,photo_distinterval"
@@ -406,10 +531,29 @@ class SpiralDesigner:
             latitude = round(coords['lat'] * 100000) / 100000
             longitude = round(coords['lon'] * 100000) / 100000
             
-            # Calculate altitude based on distance from center
+            # Calculate elevation-aware altitude
+            ground_elevation = ground_elevations[i]
+            local_ground_offset = ground_elevation - takeoff_elevation_feet
+            if local_ground_offset < 0:
+                local_ground_offset = 0
+            
+            # Calculate desired AGL based on distance from center
             dist_from_center = math.sqrt(wp['x']**2 + wp['y']**2)
-            base_altitude = 70
-            altitude = round((base_altitude + (dist_from_center * 0.8)) * 100) / 100
+            base_agl = min_height
+            agl_increment = dist_from_center * 0.8  # Increase AGL with distance
+            desired_agl = base_agl + agl_increment
+            
+            # Calculate final altitude
+            final_altitude = local_ground_offset + desired_agl
+            
+            # Apply max height constraint if specified
+            if max_height is not None:
+                adjusted_max_height = max_height - takeoff_elevation_feet
+                current_agl = final_altitude - ground_elevation
+                if current_agl > adjusted_max_height:
+                    final_altitude = ground_elevation + adjusted_max_height
+            
+            altitude = round(final_altitude * 100) / 100
             
             # Calculate heading to next waypoint
             heading = 0

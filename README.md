@@ -249,22 +249,80 @@ This documentation captures the complete technical journey and provides comprehe
 
 # Bounded Spiral Designer
 
-A drone flight pattern generator that creates bounded spiral paths for aerial photography missions. The application generates Litchi-compatible CSV waypoint files with dynamic curve radii for smooth flight paths.
+A drone flight pattern generator that creates spiral paths for aerial photography missions. Originally developed in JavaScript, now enhanced with a Python backend for better integration with larger systems.
+
+## Features
+
+- **Spiral Pattern Generation**: Creates bounded spiral flight paths with configurable parameters
+- **Battery Segmentation**: Automatically divides flight paths into individual battery segments
+- **Litchi CSV Export**: Generates waypoint files compatible with Litchi drone mission app
+- **Individual & Master Downloads**: Download CSV files for each battery or complete mission
+- **Elevation Awareness**: Integrates with Google Maps Elevation API for terrain-following flights
+- **Clean Interface**: Simplified controls for batteries, size, and height constraints
+
+## New Elevation Features ✨
+
+- **Terrain Following**: Drone altitudes automatically adjust to ground elevation
+- **Min/Max Height Control**: Set minimum and maximum height constraints (AGL)
+- **Google Maps Integration**: Real elevation data via Google Maps Elevation API
+- **Optimized API Usage**: Smart caching and proximity-based sharing reduces API calls
+- **Ground Elevation Display**: Shows ground elevation for entered coordinates
+
+## Quick Start
+
+1. **Setup Environment:**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+2. **Optional - Enable Elevation Data:**
+   ```bash
+   export GOOGLE_MAPS_API_KEY="your_api_key_here"
+   ```
+   See `ELEVATION_SETUP.md` for detailed instructions.
+
+3. **Start Server:**
+   ```bash
+   python app.py
+   ```
+
+4. **Open Interface:**
+   Open `index.html` in your browser
+
+## Interface Controls
+
+- **Batteries**: Number of flight segments (2-10)
+- **Size**: Overall spiral size (Small to Large)
+- **Min Height**: Minimum height above ground level (50-1000ft)
+- **Max Height**: Maximum height above ground level (100-2000ft)
+- **Center Coordinates**: Flight pattern center point
+- **Download Options**: Individual battery CSVs or master mission file
+
+## API Endpoints
+
+- `POST /api/spiral-data` - Generate visualization data
+- `POST /api/csv` - Download master CSV (all batteries)
+- `POST /api/csv/battery/<number>` - Download specific battery CSV
+- `POST /api/elevation` - Get elevation for coordinates
+- `GET /api/health` - Health check
+
+## Technical Details
+
+- **Frontend**: HTML5 + Plotly.js for visualization
+- **Backend**: Python Flask API with spiral generation logic
+- **Elevation**: Google Maps Elevation API with 15-foot optimization
+- **Output**: Litchi-compatible CSV mission files
+- **Architecture**: Suitable for AWS deployment and integration
+
+The system maintains the same spiral generation algorithm as the original JavaScript version while adding robust elevation handling and backend architecture for production use.
 
 ## Architecture
 
 - **Frontend**: HTML5 with Plotly.js for visualization
 - **Backend**: Python Flask API with spiral generation logic
 - **Output**: Litchi CSV mission files
-
-## Features
-
-- Multiple spiral slices (configurable 1-10)
-- Adjustable bounce count and radii
-- Debug mode for single slice visualization
-- Dynamic curve radius calculation for smooth turns
-- GPS coordinate parsing (multiple formats)
-- Real-time visualization updates
 
 ## Setup
 

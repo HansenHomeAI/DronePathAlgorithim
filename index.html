@@ -47,7 +47,23 @@
           Start: 150ft • Hold: 500ft • Bounces: 5
         </div>
       </div>
-      <div class="control" style="grid-column:1/-1"><label>Center (lat, lon)</label><input id="centerLL" type="text" placeholder="41.73218° N, 111.83979° W  or  41.73218, -111.83979"></div>
+      <div class="control">
+        <label>Minimum Height (ft AGL)</label>
+        <input id="minHeight" type="number" min="50" max="1000" value="100" step="10">
+        <span class="value-label" id="minHeightVal">100 ft</span>
+      </div>
+      <div class="control">
+        <label>Maximum Height (ft AGL)</label>
+        <input id="maxHeight" type="number" min="100" max="2000" value="400" step="10">
+        <span class="value-label" id="maxHeightVal">400 ft</span>
+      </div>
+      <div class="control" style="grid-column:1/-1">
+        <label>Center (lat, lon)</label>
+        <input id="centerLL" type="text" placeholder="41.73218° N, 111.83979° W  or  41.73218, -111.83979">
+        <div class="param-display" id="elevationDisplay" style="margin-top: 0.3rem; color: var(--muted);">
+          Enter coordinates to see ground elevation
+        </div>
+      </div>
       <div id="btnRow">
         <div id="batteryButtons" style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;"></div>
         <button id="csvMasterBtn" style="margin-top: 0.5rem;">Download Master CSV</button>
@@ -63,14 +79,15 @@
   
   // DOM elements
   const $=id=>document.getElementById(id);
-  const batteriesS=$('batteries'), sizeS=$('size');
-  const lbl={batteryVal:$('batteryVal'),sizeVal:$('sizeVal')};
+  const batteriesS=$('batteries'), sizeS=$('size'), minHeightS=$('minHeight'), maxHeightS=$('maxHeight');
+  const lbl={batteryVal:$('batteryVal'),sizeVal:$('sizeVal'),minHeightVal:$('minHeightVal'),maxHeightVal:$('maxHeightVal')};
   const statusEl = $('status');
   const paramDisplay = $('paramDisplay');
   
   // Event listeners for controls
-  [batteriesS, sizeS].forEach(el=>el.addEventListener('input',()=>refresh()));
+  [batteriesS, sizeS, minHeightS, maxHeightS].forEach(el=>el.addEventListener('input',()=>refresh()));
   $('csvMasterBtn').addEventListener('click', downloadCSV);
+  $('centerLL').addEventListener('blur', checkElevation);
 
   // Utility functions
   const setStatus = (msg, type = 'info') => {
@@ -84,6 +101,20 @@
     // Also disable/enable all battery buttons
     const batteryButtons = document.querySelectorAll('.battery-btn');
     batteryButtons.forEach(btn => btn.disabled = !enabled);
+  };
+
+  // Validate and get height values
+  const getHeightValues = () => {
+    let minHeight = parseInt(minHeightS.value) || 100;
+    let maxHeight = parseInt(maxHeightS.value) || 400;
+    
+    // Ensure min is not greater than max
+    if (minHeight >= maxHeight) {
+      maxHeight = minHeight + 50;
+      maxHeightS.value = maxHeight;
+    }
+    
+    return { minHeight, maxHeight };
   };
 
   // Validate and get battery count
@@ -104,6 +135,7 @@
   const calculateParams = (sizeValue) => {
     const size = parseFloat(sizeValue);
     const batteries = getBatteryCount();
+    const heights = getHeightValues();
     
     // Linear interpolation for each parameter
     const r0 = 150 + (size / 100) * (500 - 150);      // 150ft → 500ft
@@ -114,7 +146,9 @@
       slices: batteries,  // batteries = slices for the backend
       N: N,
       r0: Math.round(r0 * 10) / 10,  // Round to 1 decimal
-      rHold: Math.round(rHold)        // Round to nearest integer
+      rHold: Math.round(rHold),        // Round to nearest integer
+      minHeight: heights.minHeight,
+      maxHeight: heights.maxHeight
     };
   };
 
@@ -133,6 +167,11 @@
     else sizeLabel = 'Large';
     
     lbl.sizeVal.textContent = sizeLabel;
+    
+    // Update height labels
+    const heights = getHeightValues();
+    lbl.minHeightVal.textContent = `${heights.minHeight} ft`;
+    lbl.maxHeightVal.textContent = `${heights.maxHeight} ft`;
     
     // Update parameter display
     const p = calculateParams(size);
@@ -327,6 +366,27 @@
       }
     } catch (error) {
       setStatus('Backend connection failed - Please start Python server', 'error');
+    }
+  }
+
+  // Check elevation for entered coordinates
+  async function checkElevation() {
+    const centerVal = $('centerLL').value.trim();
+    const elevationDisplay = $('elevationDisplay');
+    
+    if (!centerVal) {
+      elevationDisplay.textContent = 'Enter coordinates to see ground elevation';
+      return;
+    }
+    
+    try {
+      elevationDisplay.textContent = 'Checking elevation...';
+      const response = await apiCall('/elevation', { center: centerVal });
+      const data = await response.json();
+      
+      elevationDisplay.textContent = `Ground elevation: ${data.elevation_feet} ft (${data.elevation_meters} m)`;
+    } catch (error) {
+      elevationDisplay.textContent = 'Unable to get elevation data';
     }
   }
 
