@@ -141,17 +141,16 @@
     waypoints.push(findSpiralPoint(tMidHold, true, 'hold_mid')); // Mid-hold point
     waypoints.push(findSpiralPoint(tEndHold, false, 'hold_end')); // End-hold point
     
-    // PHASE 3: Inbound spiral - create COMPLETELY SEPARATE waypoints
+    // PHASE 3: Inbound spiral - create COMPLETELY SEPARATE waypoints that mirror outbound
     for(let bounce = 1; bounce <= p.N; bounce++) {
       // Add bounce point - INBOUND BOUNCE (always separate)
       const tBounce = tEndHold + bounce * dphi;
       waypoints.push(findSpiralPoint(tBounce, false, `inbound_bounce_${bounce}`));
       
-      // Add midpoint after bounce (except for last) - INBOUND MIDPOINT (always separate)
-      if(bounce < p.N) {
-        const tMid = tEndHold + (bounce + 0.5) * dphi;
-        waypoints.push(findSpiralPoint(tMid, true, `inbound_mid_${bounce}`));
-      }
+      // Add midpoint after bounce - INBOUND MIDPOINT (mirror outbound pattern)
+      // Generate midpoint for ALL bounces to mirror outbound (which has midpoints before bounces 2-N)
+      const tMid = tEndHold + (bounce + 0.5) * dphi;
+      waypoints.push(findSpiralPoint(tMid, true, `inbound_mid_${bounce}`));
     }
     
     return waypoints;
