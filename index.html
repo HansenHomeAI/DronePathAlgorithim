@@ -91,8 +91,6 @@
     const alpha = Math.log(p.rHold/p.r0)/(p.N*dphi);
     const tOut = p.N*dphi, tHold = dphi, tTot = 2*tOut + tHold;
     
-    const waypoints = [];
-    
     // Helper function to create waypoint at given parameter t
     const createWaypoint = (t) => {
       let r, phi;
@@ -120,44 +118,44 @@
       const rotX = x * Math.cos(off) - y * Math.sin(off);
       const rotY = x * Math.sin(off) + y * Math.cos(off);
       
-      return {x: rotX, y: rotY, curve: 20}; // Simple fixed curve radius
+      return {x: rotX, y: rotY, curve: 20, t: t}; // Include t parameter for debugging
     };
     
-    // PHASE 1: Outward spiral - start to max radius
-    waypoints.push(createWaypoint(0)); // Start point
+    const waypoints = [];
+    const criticalPoints = new Set(); // Track critical t values
     
-    for(let bounce = 1; bounce <= p.N; bounce++) {
-      // Add midpoint before bounce (except for first)
-      if(bounce > 1) {
-        const tMid = (bounce - 0.5) * dphi;
-        waypoints.push(createWaypoint(tMid));
-      }
-      
-      // Add bounce point
-      const tBounce = bounce * dphi;
-      waypoints.push(createWaypoint(tBounce));
+    // Add all critical bounce points for outward spiral
+    for(let i = 0; i <= p.N; i++) {
+      criticalPoints.add(i * dphi);
     }
     
-    // PHASE 2: Hold phase - travel around outer edge
-    const tStartHold = tOut;
-    const tMidHold = tOut + tHold/2;
-    const tEndHold = tOut + tHold;
+    // Add hold phase points
+    criticalPoints.add(tOut + tHold/3);
+    criticalPoints.add(tOut + 2*tHold/3);
+    criticalPoints.add(tOut + tHold);
     
-    waypoints.push(createWaypoint(tMidHold)); // Mid-hold point
-    waypoints.push(createWaypoint(tEndHold));  // End-hold point (start of inward)
-    
-    // PHASE 3: Inward spiral - max radius back to start
-    for(let bounce = 1; bounce <= p.N; bounce++) {
-      // Add bounce point
-      const tBounce = tEndHold + bounce * dphi;
-      waypoints.push(createWaypoint(tBounce));
-      
-      // Add midpoint after bounce (except for last)
-      if(bounce < p.N) {
-        const tMid = tEndHold + (bounce + 0.5) * dphi;
-        waypoints.push(createWaypoint(tMid));
-      }
+    // Add all critical bounce points for inward spiral
+    for(let i = 1; i <= p.N; i++) {
+      criticalPoints.add(tOut + tHold + i * dphi);
     }
+    
+    // Convert to sorted array and add regular intervals
+    const allPoints = Array.from(criticalPoints);
+    
+    // Add regular interval points (every dphi/4 for density)
+    for(let t = 0; t <= tTot; t += dphi/4) {
+      allPoints.push(t);
+    }
+    
+    // Sort and remove duplicates
+    const uniquePoints = [...new Set(allPoints)].sort((a, b) => a - b);
+    
+    // Generate waypoints for all points
+    uniquePoints.forEach(t => {
+      if(t >= 0 && t <= tTot) {
+        waypoints.push(createWaypoint(t));
+      }
+    });
     
     return waypoints;
   }
