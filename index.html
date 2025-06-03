@@ -123,43 +123,41 @@
       return {x: rotX, y: rotY, curve: 20}; // Simple fixed curve radius
     };
     
-    // Create waypoints at key positions:
-    // 1. Start point
-    waypoints.push(createWaypoint(0));
+    // PHASE 1: Outward spiral - start to max radius
+    waypoints.push(createWaypoint(0)); // Start point
     
-    // 2. At each bounce (direction change) during outward spiral
     for(let bounce = 1; bounce <= p.N; bounce++) {
+      // Add midpoint before bounce (except for first)
+      if(bounce > 1) {
+        const tMid = (bounce - 0.5) * dphi;
+        waypoints.push(createWaypoint(tMid));
+      }
+      
+      // Add bounce point
       const tBounce = bounce * dphi;
       waypoints.push(createWaypoint(tBounce));
-      
-      // Add midpoint between bounces if we're not at the last bounce
-      if(bounce < p.N) {
-        const tMid = tBounce + dphi/2;
-        waypoints.push(createWaypoint(tMid));
-      }
     }
     
-    // 3. Hold phase waypoints
-    waypoints.push(createWaypoint(tOut + tHold/2)); // Mid-hold
-    waypoints.push(createWaypoint(tOut + tHold));   // End-hold
+    // PHASE 2: Hold phase - travel around outer edge
+    const tStartHold = tOut;
+    const tMidHold = tOut + tHold/2;
+    const tEndHold = tOut + tHold;
     
-    // 4. Inward spiral waypoints (mirror of outward)
-    for(let bounce = p.N-1; bounce >= 1; bounce--) {
-      const tBounce = tOut + tHold + (p.N - bounce) * dphi;
-      
-      // Add midpoint first
-      if(bounce < p.N-1) {
-        const tMid = tBounce - dphi/2;
-        waypoints.push(createWaypoint(tMid));
-      }
-      
-      // Then bounce point
+    waypoints.push(createWaypoint(tMidHold)); // Mid-hold point
+    waypoints.push(createWaypoint(tEndHold));  // End-hold point (start of inward)
+    
+    // PHASE 3: Inward spiral - max radius back to start
+    for(let bounce = 1; bounce <= p.N; bounce++) {
+      // Add bounce point
+      const tBounce = tEndHold + bounce * dphi;
       waypoints.push(createWaypoint(tBounce));
+      
+      // Add midpoint after bounce (except for last)
+      if(bounce < p.N) {
+        const tMid = tEndHold + (bounce + 0.5) * dphi;
+        waypoints.push(createWaypoint(tMid));
+      }
     }
-    
-    // 5. Final approach to center
-    waypoints.push(createWaypoint(tTot - dphi/2)); // Midpoint before final
-    waypoints.push(createWaypoint(tTot));          // Final point
     
     return waypoints;
   }
