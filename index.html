@@ -40,12 +40,17 @@
         <span class="value-label" id="batteryVal">2 batteries</span>
       </div>
       <div class="control">
-        <label>Size</label>
-        <input id="size" type="range" min="0" max="100" value="0">
-        <span class="value-label" id="sizeVal">Small</span>
-        <div class="param-display" id="paramDisplay">
-          Start: 150ft • Hold: 500ft • Bounces: 5
+        <label>Battery Duration (minutes)</label>
+        <input id="batteryDuration" type="number" min="10" max="45" value="20" step="1">
+        <span class="value-label" id="batteryDurationVal">20 minutes</span>
+        <div class="param-display" id="optimizationDisplay">
+          Auto-optimizing for maximum coverage...
         </div>
+      </div>
+      <div class="control">
+        <label>Flight Speed (mph)</label>
+        <input id="flightSpeed" type="number" min="15" max="25" value="20" step="0.5">
+        <span class="value-label" id="flightSpeedVal">20 mph</span>
       </div>
       <div class="control">
         <label>Minimum Height (ft AGL)</label>
@@ -79,13 +84,17 @@
   
   // DOM elements
   const $=id=>document.getElementById(id);
-  const batteriesS=$('batteries'), sizeS=$('size'), minHeightS=$('minHeight'), maxHeightS=$('maxHeight');
-  const lbl={batteryVal:$('batteryVal'),sizeVal:$('sizeVal'),minHeightVal:$('minHeightVal'),maxHeightVal:$('maxHeightVal')};
+  const batteriesS=$('batteries'), batteryDurationS=$('batteryDuration'), flightSpeedS=$('flightSpeed'), minHeightS=$('minHeight'), maxHeightS=$('maxHeight');
+  const lbl={batteryVal:$('batteryVal'),batteryDurationVal:$('batteryDurationVal'),flightSpeedVal:$('flightSpeedVal'),minHeightVal:$('minHeightVal'),maxHeightVal:$('maxHeightVal')};
   const statusEl = $('status');
-  const paramDisplay = $('paramDisplay');
+  const optimizationDisplay = $('optimizationDisplay');
+  
+  // State management
+  let currentOptimizedParams = null;
+  let isOptimizing = false;
   
   // Event listeners for controls
-  [batteriesS, sizeS, minHeightS, maxHeightS].forEach(el=>el.addEventListener('input',()=>refresh()));
+  [batteriesS, batteryDurationS, flightSpeedS, minHeightS, maxHeightS].forEach(el=>el.addEventListener('input',()=>refresh()));
   $('csvMasterBtn').addEventListener('click', downloadCSV);
   $('centerLL').addEventListener('blur', checkElevation);
 
@@ -152,30 +161,82 @@
     };
   };
 
-  const params = () => calculateParams(sizeS.value);
-  
+  // Optimization functions
+  async function optimizeSpiral() {
+    if (isOptimizing) return;
+    
+    const centerVal = $('centerLL').value.trim();
+    if (!centerVal) {
+      optimizationDisplay.textContent = 'Enter coordinates to optimize';
+      return;
+    }
+    
+    isOptimizing = true;
+    optimizationDisplay.textContent = 'Optimizing spiral parameters...';
+    
+    try {
+      const batteries = getBatteryCount();
+      const batteryMinutes = parseInt(batteryDurationS.value) || 20;
+      
+      const response = await apiCall('/optimize-spiral', {
+        batteryMinutes,
+        batteries,
+        center: centerVal
+      });
+      
+      const data = await response.json();
+      currentOptimizedParams = data.optimized_params;
+      
+      // Update display with optimization results
+      const info = data.optimization_info;
+      optimizationDisplay.innerHTML = `
+        <strong>Optimized:</strong> ${info.spiral_radius_feet}ft radius • ${info.bounce_count} bounces<br>
+        <span style="color: var(--accent)">Est. ${info.estimated_time_minutes}min (${info.battery_utilization_percent}% battery)</span>
+      `;
+      
+    } catch (error) {
+      optimizationDisplay.textContent = 'Optimization failed - using defaults';
+      currentOptimizedParams = null;
+    } finally {
+      isOptimizing = false;
+    }
+  }
+
+  const params = () => {
+    if (currentOptimizedParams) {
+      const heights = getHeightValues();
+      return {
+        ...currentOptimizedParams,
+        minHeight: heights.minHeight,
+        maxHeight: heights.maxHeight
+      };
+    }
+    
+    // Fallback to basic params if no optimization
+    const batteries = getBatteryCount();
+    const heights = getHeightValues();
+    return {
+      slices: batteries,
+      N: 6,
+      r0: 150,
+      rHold: 800,
+      minHeight: heights.minHeight,
+      maxHeight: heights.maxHeight
+    };
+  };
+
   const updateLabels = () => {
     const batteries = getBatteryCount();
     lbl.batteryVal.textContent = `${batteries} ${batteries === 1 ? 'battery' : 'batteries'}`;
     
-    const size = parseInt(sizeS.value);
-    let sizeLabel;
-    if (size <= 20) sizeLabel = 'Small';
-    else if (size <= 40) sizeLabel = 'Medium-Small';
-    else if (size <= 60) sizeLabel = 'Medium';
-    else if (size <= 80) sizeLabel = 'Medium-Large';
-    else sizeLabel = 'Large';
+    lbl.batteryDurationVal.textContent = `${batteryDurationS.value} minutes`;
     
-    lbl.sizeVal.textContent = sizeLabel;
+    lbl.flightSpeedVal.textContent = `${flightSpeedS.value} mph`;
     
     // Update height labels
     const heights = getHeightValues();
     lbl.minHeightVal.textContent = `${heights.minHeight} ft`;
     lbl.maxHeightVal.textContent = `${heights.maxHeight} ft`;
-    
-    // Update parameter display
-    const p = calculateParams(size);
-    paramDisplay.textContent = `Start: ${p.r0}ft • Hold: ${p.rHold}ft • Bounces: ${p.N}`;
   };
 
   // API functions
@@ -351,6 +412,13 @@
   async function refresh() {
     updateLabels();
     createBatteryButtons();
+    
+    // Trigger optimization if we have coordinates
+    const centerVal = $('centerLL').value.trim();
+    if (centerVal) {
+      await optimizeSpiral();
+    }
+    
     await draw();
   }
 
@@ -385,6 +453,9 @@
       const data = await response.json();
       
       elevationDisplay.textContent = `Ground elevation: ${data.elevation_feet} ft (${data.elevation_meters} m)`;
+      
+      // Trigger optimization after getting elevation
+      await optimizeSpiral();
     } catch (error) {
       elevationDisplay.textContent = 'Unable to get elevation data';
     }

@@ -282,6 +282,67 @@ def get_elevation():
         logger.error(f"Error getting elevation: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/optimize-spiral', methods=['POST'])
+def optimize_spiral():
+    """
+    Optimize spiral parameters for given battery capacity
+    Expected JSON payload:
+    {
+        "batteryMinutes": 20,
+        "batteries": 3,
+        "center": "41.73218, -111.83979"
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        # Validate required parameters
+        required_params = ['batteryMinutes', 'batteries', 'center']
+        for param in required_params:
+            if param not in data:
+                return jsonify({'error': f'Missing required parameter: {param}'}), 400
+        
+        battery_minutes = float(data['batteryMinutes'])
+        batteries = int(data['batteries'])
+        center_str = data['center']
+        
+        # Validate ranges
+        if battery_minutes < 5 or battery_minutes > 60:
+            return jsonify({'error': 'Battery minutes must be between 5 and 60'}), 400
+        if batteries < 1 or batteries > 10:
+            return jsonify({'error': 'Batteries must be between 1 and 10'}), 400
+        
+        # Parse center coordinates
+        center = designer.parse_center(center_str)
+        if not center:
+            return jsonify({'error': 'Invalid center coordinates'}), 400
+        
+        # Optimize spiral parameters
+        optimized_params = designer.optimize_spiral_for_battery(
+            battery_minutes, 
+            batteries, 
+            center['lat'], 
+            center['lon']
+        )
+        
+        return jsonify({
+            'optimized_params': optimized_params,
+            'optimization_info': {
+                'target_battery_minutes': battery_minutes,
+                'estimated_time_minutes': optimized_params['estimated_time_minutes'],
+                'battery_utilization_percent': optimized_params['battery_utilization'],
+                'spiral_radius_feet': optimized_params['rHold'],
+                'bounce_count': optimized_params['N']
+            }
+        })
+    
+    except ValueError as ve:
+        logger.error(f"Validation error: {str(ve)}")
+        return jsonify({'error': str(ve)}), 400
+    except Exception as e:
+        logger.error(f"Error optimizing spiral: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     # Run the Flask app
     print("Starting Spiral Designer API...")
@@ -291,6 +352,7 @@ if __name__ == '__main__':
     print("  POST /api/csv - Generate master CSV file (all batteries)")
     print("  POST /api/csv/battery/<number> - Generate CSV file for specific battery")
     print("  POST /api/elevation - Get elevation for coordinates")
+    print("  POST /api/optimize-spiral - Optimize spiral parameters for given battery capacity")
     print("  POST /api/validate-center - Validate center coordinates")
     print("  GET  /api/health - Health check")
     

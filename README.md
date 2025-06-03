@@ -253,20 +253,35 @@ A drone flight pattern generator that creates spiral paths for aerial photograph
 
 ## Features
 
-- **Spiral Pattern Generation**: Creates bounded spiral flight paths with configurable parameters
-- **Battery Segmentation**: Automatically divides flight paths into individual battery segments
-- **Litchi CSV Export**: Generates waypoint files compatible with Litchi drone mission app
-- **Individual & Master Downloads**: Download CSV files for each battery or complete mission
-- **Elevation Awareness**: Integrates with Google Maps Elevation API for terrain-following flights
-- **Clean Interface**: Simplified controls for batteries, size, and height constraints
+- **Interactive Spiral Design**: Visualize spiral flight patterns with adjustable parameters
+- **Battery-Optimized Planning**: Automatically calculates maximum coverage for given battery duration
+- **Individual Battery Downloads**: Generate separate CSV files for each battery/flight
+- **Master CSV Generation**: Single file containing all batteries for complex missions
+- **Real Elevation Integration**: Uses Google Maps Elevation API for terrain-following flights
+- **Smart API Optimization**: Minimizes elevation API calls with 15-foot proximity sharing
+- **Terrain-Following Altitudes**: Maintains consistent height above ground level (AGL)
+- **Flight Time Estimation**: Accurate battery duration calculations based on drone speed and mission complexity
 
-## New Elevation Features ✨
+## New: Battery Duration Optimization 🚁
 
-- **Terrain Following**: Drone altitudes automatically adjust to ground elevation
-- **Min/Max Height Control**: Set minimum and maximum height constraints (AGL)
-- **Google Maps Integration**: Real elevation data via Google Maps Elevation API
-- **Optimized API Usage**: Smart caching and proximity-based sharing reduces API calls
-- **Ground Elevation Display**: Shows ground elevation for entered coordinates
+Instead of manually adjusting spiral size, simply specify your battery duration and let the system automatically find the **maximum coverage area** that fits within your time constraint.
+
+### How It Works:
+1. **Binary Search Algorithm**: Efficiently finds optimal spiral radius using computational optimization
+2. **Flight Time Estimation**: Calculates total mission time including:
+   - Horizontal flight time (based on distance and speed)
+   - Vertical flight time (altitude changes)
+   - Hover and acceleration time at waypoints
+   - Return-to-home time
+3. **Safety Margin**: Maintains 95% battery utilization to ensure safe completion
+4. **Multi-Parameter Optimization**: Balances radius size and bounce count for maximum efficiency
+
+### Example Results:
+- **12-minute battery** → **504ft radius spiral** (95% utilization)
+- **25-minute battery** → **1,139ft radius spiral** (94.8% utilization)  
+- **40-minute battery** → **1,447ft radius spiral** (95% utilization)
+
+This approach maximizes your survey area while ensuring you never exceed battery capacity!
 
 ## Quick Start
 

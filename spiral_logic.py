@@ -604,6 +604,189 @@ class SpiralDesigner:
         
         return '\n'.join(rows)
 
+    def estimate_flight_time_minutes(self, params: Dict, center_lat: float, center_lon: float) -> float:
+        """
+        Estimate total flight time in minutes for a spiral mission
+        Based on the timing logic from oldFunction.py
+        """
+        # Flight parameters
+        speed_mph = 19.8
+        speed_mps = speed_mph * 0.44704  # Convert to m/s
+        vertical_speed_mps = 5.0  # Vertical speed in m/s
+        hover_time = 3  # Hover time per waypoint
+        accel_time = 2  # Acceleration time per waypoint
+        
+        # Get all waypoints for all slices
+        all_waypoints = self.compute_waypoints(params)
+        
+        total_time_seconds = 0.0
+        
+        # Calculate time for each slice (battery)
+        for slice_waypoints in all_waypoints:
+            if not slice_waypoints:
+                continue
+                
+            slice_time = 0.0
+            
+            # Start at takeoff location (center coordinates)
+            prev_lat, prev_lon = center_lat, center_lon
+            prev_altitude = 100.0  # Assume 100ft starting altitude
+            
+            # Time to ascend to first waypoint
+            if slice_waypoints:
+                first_wp = slice_waypoints[0]
+                ascend_time = (prev_altitude * self.FT2M) / vertical_speed_mps
+                slice_time += ascend_time
+            
+            # Process each waypoint in the slice
+            for i, wp in enumerate(slice_waypoints):
+                # Convert waypoint coordinates to lat/lon
+                coords = self.xy_to_lat_lon(wp['x'], wp['y'], center_lat, center_lon)
+                
+                # Calculate altitude (simplified - use distance-based altitude)
+                dist_from_center = math.sqrt(wp['x']**2 + wp['y']**2)
+                wp_altitude = 100.0 + (dist_from_center * 0.8)  # Base + distance scaling
+                
+                # Calculate horizontal distance from previous position
+                horizontal_dist_m = self.haversine_distance(prev_lat, prev_lon, coords['lat'], coords['lon'])
+                
+                # Calculate altitude difference
+                altitude_diff_ft = abs(wp_altitude - prev_altitude)
+                altitude_diff_m = altitude_diff_ft * self.FT2M
+                
+                # Time calculations
+                horizontal_time = horizontal_dist_m / speed_mps
+                vertical_time = altitude_diff_m / vertical_speed_mps
+                segment_time = horizontal_time + vertical_time + hover_time + accel_time
+                
+                slice_time += segment_time
+                
+                # Update previous position
+                prev_lat, prev_lon = coords['lat'], coords['lon']
+                prev_altitude = wp_altitude
+            
+            # Time to return home from last waypoint
+            if slice_waypoints:
+                last_coords = self.xy_to_lat_lon(slice_waypoints[-1]['x'], slice_waypoints[-1]['y'], center_lat, center_lon)
+                return_dist_m = self.haversine_distance(last_coords['lat'], last_coords['lon'], center_lat, center_lon)
+                return_altitude_diff_m = (prev_altitude - 100.0) * self.FT2M  # Return to starting altitude
+                
+                return_time = (return_dist_m / speed_mps) + (abs(return_altitude_diff_m) / vertical_speed_mps) + accel_time
+                slice_time += return_time
+                
+                # Time to descend and land
+                descent_time = (100.0 * self.FT2M) / vertical_speed_mps
+                slice_time += descent_time
+            
+            total_time_seconds += slice_time
+        
+        return total_time_seconds / 60.0  # Convert to minutes
+    
+    def optimize_spiral_for_battery(self, target_battery_minutes: float, num_batteries: int, center_lat: float, center_lon: float) -> Dict:
+        """
+        Use binary search to find optimal spiral parameters for given battery capacity
+        Returns optimized parameters that maximize coverage while staying within time limit
+        """
+        # Parameter constraints
+        min_r0, max_r0 = 50.0, 500.0  # Start radius range
+        min_rHold, max_rHold = 200.0, 4000.0  # Hold radius range  
+        min_N, max_N = 3, 12  # Bounce count range
+        
+        # Start with very conservative base parameters to ensure we don't exceed battery
+        base_params = {
+            'slices': num_batteries,
+            'N': min_N,  # Start with minimum bounces
+            'r0': 100.0  # Conservative start radius
+        }
+        
+        # First check if even minimum parameters fit
+        test_params = base_params.copy()
+        test_params['rHold'] = min_rHold
+        
+        try:
+            min_time = self.estimate_flight_time_minutes(test_params, center_lat, center_lon)
+            if min_time > target_battery_minutes:
+                # Even minimum doesn't fit - return absolute minimum
+                print(f"Warning: Even minimum spiral ({min_time:.1f}min) exceeds battery capacity ({target_battery_minutes}min)")
+                return {
+                    'slices': num_batteries,
+                    'N': min_N,
+                    'r0': 100.0,
+                    'rHold': min_rHold,
+                    'estimated_time_minutes': min_time,
+                    'battery_utilization': round((min_time / target_battery_minutes) * 100, 1)
+                }
+        except Exception as e:
+            print(f"Error testing minimum parameters: {e}")
+        
+        # Binary search on hold radius (primary size driver)
+        best_params = None
+        best_time = 0.0
+        
+        # Binary search with safety margin
+        low, high = min_rHold, max_rHold
+        tolerance = 5.0  # 5ft tolerance
+        max_iterations = 20  # Prevent infinite loops
+        iterations = 0
+        
+        while high - low > tolerance and iterations < max_iterations:
+            iterations += 1
+            mid_rHold = (low + high) / 2
+            
+            # Test parameters with current hold radius
+            test_params = base_params.copy()
+            test_params['rHold'] = mid_rHold
+            
+            try:
+                estimated_time = self.estimate_flight_time_minutes(test_params, center_lat, center_lon)
+                
+                # Add 5% safety margin to avoid going over battery
+                if estimated_time <= target_battery_minutes * 0.95:
+                    # This size fits comfortably, try larger
+                    best_params = test_params.copy()
+                    best_time = estimated_time
+                    low = mid_rHold
+                else:
+                    # Too big or too close to limit, try smaller
+                    high = mid_rHold
+                    
+            except Exception as e:
+                print(f"Error estimating time for rHold={mid_rHold}: {e}")
+                high = mid_rHold
+        
+        # Fine-tune with bounce count if we have significant headroom
+        if best_params and best_time < target_battery_minutes * 0.8:  # If using less than 80% of battery
+            for test_N in range(min_N + 1, max_N + 1):
+                test_params = best_params.copy()
+                test_params['N'] = test_N
+                
+                try:
+                    estimated_time = self.estimate_flight_time_minutes(test_params, center_lat, center_lon)
+                    if estimated_time <= target_battery_minutes * 0.95 and estimated_time > best_time:
+                        best_params = test_params.copy()
+                        best_time = estimated_time
+                except:
+                    break  # Stop if we hit errors
+        
+        # Final safety check - if we still don't have good params, use absolute minimum
+        if not best_params:
+            best_params = {
+                'slices': num_batteries,
+                'N': min_N,
+                'r0': 100.0,
+                'rHold': min_rHold
+            }
+            try:
+                best_time = self.estimate_flight_time_minutes(best_params, center_lat, center_lon)
+            except:
+                best_time = target_battery_minutes * 1.2  # Fallback estimate
+        
+        # Add timing info to results
+        best_params['estimated_time_minutes'] = round(best_time, 2)
+        best_params['battery_utilization'] = round((best_time / target_battery_minutes) * 100, 1)
+        
+        return best_params
+
 # Example usage and testing
 if __name__ == "__main__":
     designer = SpiralDesigner()
