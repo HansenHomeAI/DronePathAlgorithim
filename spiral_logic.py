@@ -434,6 +434,8 @@ class SpiralDesigner:
         
         # Track first waypoint distance for relative altitude calculation
         first_waypoint_distance = 0
+        max_outbound_altitude = 0
+        max_outbound_distance = 0
         
         for i, wp in enumerate(spiral_path):
             # Convert to lat/lon
@@ -447,20 +449,47 @@ class SpiralDesigner:
             if local_ground_offset < 0:
                 local_ground_offset = 0
             
-            # Calculate desired AGL based on distance from center
+            # Calculate desired AGL based on distance from center and phase
             dist_from_center = math.sqrt(wp['x']**2 + wp['y']**2)
             
-            # NEW LOGIC: First waypoint starts at min_height, subsequent waypoints increase relative to first
+            # Determine waypoint phase for differentiated elevation logic
+            phase = wp.get('phase', 'unknown')
+            
             if i == 0:
                 # First waypoint starts at min_height regardless of distance from center
                 first_waypoint_distance = dist_from_center
                 desired_agl = min_height
-            else:
-                # Subsequent waypoints increase at 0.5ft per foot of additional distance from first waypoint
+                max_outbound_altitude = min_height
+                max_outbound_distance = dist_from_center
+            elif 'outbound' in phase or 'hold' in phase:
+                # OUTBOUND & HOLD: Climb at 0.37ft per foot of additional distance
                 additional_distance = dist_from_center - first_waypoint_distance
                 if additional_distance < 0:
-                    additional_distance = 0  # In case we get closer to center
-                agl_increment = additional_distance * 0.5  # Reduced from 0.8 to 0.5 feet per foot
+                    additional_distance = 0
+                agl_increment = additional_distance * 0.37  # 0.37 feet per foot for outbound
+                desired_agl = min_height + agl_increment
+                
+                # Track maximum outbound altitude and distance for inbound calculations
+                if desired_agl > max_outbound_altitude:
+                    max_outbound_altitude = desired_agl
+                    max_outbound_distance = dist_from_center
+            elif 'inbound' in phase:
+                # INBOUND: Descend slowly at 0.1ft per foot, maintaining higher altitude
+                distance_from_max = max_outbound_distance - dist_from_center
+                if distance_from_max < 0:
+                    distance_from_max = 0
+                altitude_decrease = distance_from_max * 0.1  # Only 0.1 feet per foot decrease
+                desired_agl = max_outbound_altitude - altitude_decrease
+                
+                # Ensure we don't go below min_height
+                if desired_agl < min_height:
+                    desired_agl = min_height
+            else:
+                # Fallback for unknown phases - use old logic
+                additional_distance = dist_from_center - first_waypoint_distance
+                if additional_distance < 0:
+                    additional_distance = 0
+                agl_increment = additional_distance * 0.37
                 desired_agl = min_height + agl_increment
             
             # Calculate final altitude
@@ -550,6 +579,8 @@ class SpiralDesigner:
         
         # Track first waypoint distance for relative altitude calculation
         first_waypoint_distance = 0
+        max_outbound_altitude = 0
+        max_outbound_distance = 0
         
         for i, wp in enumerate(spiral_path):
             # Convert to lat/lon
@@ -563,20 +594,47 @@ class SpiralDesigner:
             if local_ground_offset < 0:
                 local_ground_offset = 0
             
-            # Calculate desired AGL based on distance from center
+            # Calculate desired AGL based on distance from center and phase
             dist_from_center = math.sqrt(wp['x']**2 + wp['y']**2)
             
-            # NEW LOGIC: First waypoint starts at min_height, subsequent waypoints increase relative to first
+            # Determine waypoint phase for differentiated elevation logic
+            phase = wp.get('phase', 'unknown')
+            
             if i == 0:
                 # First waypoint starts at min_height regardless of distance from center
                 first_waypoint_distance = dist_from_center
                 desired_agl = min_height
-            else:
-                # Subsequent waypoints increase at 0.5ft per foot of additional distance from first waypoint
+                max_outbound_altitude = min_height
+                max_outbound_distance = dist_from_center
+            elif 'outbound' in phase or 'hold' in phase:
+                # OUTBOUND & HOLD: Climb at 0.37ft per foot of additional distance
                 additional_distance = dist_from_center - first_waypoint_distance
                 if additional_distance < 0:
-                    additional_distance = 0  # In case we get closer to center
-                agl_increment = additional_distance * 0.5  # Reduced from 0.8 to 0.5 feet per foot
+                    additional_distance = 0
+                agl_increment = additional_distance * 0.37  # 0.37 feet per foot for outbound
+                desired_agl = min_height + agl_increment
+                
+                # Track maximum outbound altitude and distance for inbound calculations
+                if desired_agl > max_outbound_altitude:
+                    max_outbound_altitude = desired_agl
+                    max_outbound_distance = dist_from_center
+            elif 'inbound' in phase:
+                # INBOUND: Descend slowly at 0.1ft per foot, maintaining higher altitude
+                distance_from_max = max_outbound_distance - dist_from_center
+                if distance_from_max < 0:
+                    distance_from_max = 0
+                altitude_decrease = distance_from_max * 0.1  # Only 0.1 feet per foot decrease
+                desired_agl = max_outbound_altitude - altitude_decrease
+                
+                # Ensure we don't go below min_height
+                if desired_agl < min_height:
+                    desired_agl = min_height
+            else:
+                # Fallback for unknown phases - use old logic
+                additional_distance = dist_from_center - first_waypoint_distance
+                if additional_distance < 0:
+                    additional_distance = 0
+                agl_increment = additional_distance * 0.37
                 desired_agl = min_height + agl_increment
             
             # Calculate final altitude
@@ -674,19 +732,47 @@ class SpiralDesigner:
             # Convert waypoint coordinates to lat/lon
             coords = self.xy_to_lat_lon(wp['x'], wp['y'], center_lat, center_lon)
             
-            # Calculate altitude using new relative logic
+            # Calculate altitude using new differentiated logic
             dist_from_center = math.sqrt(wp['x']**2 + wp['y']**2)
+            
+            # Determine waypoint phase for differentiated elevation logic
+            phase = wp.get('phase', 'unknown')
             
             if i == 0:
                 # First waypoint starts at min_height regardless of distance from center
                 first_waypoint_distance = dist_from_center
                 wp_altitude = min_height
-            else:
-                # Subsequent waypoints increase at 0.5ft per foot of additional distance from first waypoint
+                max_outbound_altitude = min_height
+                max_outbound_distance = dist_from_center
+            elif 'outbound' in phase or 'hold' in phase:
+                # OUTBOUND & HOLD: Climb at 0.37ft per foot of additional distance
                 additional_distance = dist_from_center - first_waypoint_distance
                 if additional_distance < 0:
-                    additional_distance = 0  # In case we get closer to center
-                agl_increment = additional_distance * 0.5  # 0.5 feet per foot
+                    additional_distance = 0
+                agl_increment = additional_distance * 0.37  # 0.37 feet per foot for outbound
+                wp_altitude = min_height + agl_increment
+                
+                # Track maximum outbound altitude and distance for inbound calculations
+                if wp_altitude > max_outbound_altitude:
+                    max_outbound_altitude = wp_altitude
+                    max_outbound_distance = dist_from_center
+            elif 'inbound' in phase:
+                # INBOUND: Descend slowly at 0.1ft per foot, maintaining higher altitude
+                distance_from_max = max_outbound_distance - dist_from_center
+                if distance_from_max < 0:
+                    distance_from_max = 0
+                altitude_decrease = distance_from_max * 0.1  # Only 0.1 feet per foot decrease
+                wp_altitude = max_outbound_altitude - altitude_decrease
+                
+                # Ensure we don't go below min_height
+                if wp_altitude < min_height:
+                    wp_altitude = min_height
+            else:
+                # Fallback for unknown phases - use old logic
+                additional_distance = dist_from_center - first_waypoint_distance
+                if additional_distance < 0:
+                    additional_distance = 0
+                agl_increment = additional_distance * 0.37
                 wp_altitude = min_height + agl_increment
             
             # Calculate horizontal distance from previous position
