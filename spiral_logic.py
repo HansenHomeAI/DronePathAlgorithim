@@ -432,6 +432,9 @@ class SpiralDesigner:
         header = "latitude,longitude,altitude(ft),heading(deg),curvesize(ft),rotationdir,gimbalmode,gimbalpitchangle,altitudemode,speed(m/s),poi_latitude,poi_longitude,poi_altitude(ft),poi_altitudemode,photo_timeinterval,photo_distinterval"
         rows = [header]
         
+        # Track first waypoint distance for relative altitude calculation
+        first_waypoint_distance = 0
+        
         for i, wp in enumerate(spiral_path):
             # Convert to lat/lon
             coords = self.xy_to_lat_lon(wp['x'], wp['y'], center['lat'], center['lon'])
@@ -446,9 +449,19 @@ class SpiralDesigner:
             
             # Calculate desired AGL based on distance from center
             dist_from_center = math.sqrt(wp['x']**2 + wp['y']**2)
-            base_agl = min_height
-            agl_increment = dist_from_center * 0.8  # Increase AGL with distance
-            desired_agl = base_agl + agl_increment
+            
+            # NEW LOGIC: First waypoint starts at min_height, subsequent waypoints increase relative to first
+            if i == 0:
+                # First waypoint starts at min_height regardless of distance from center
+                first_waypoint_distance = dist_from_center
+                desired_agl = min_height
+            else:
+                # Subsequent waypoints increase at 0.5ft per foot of additional distance from first waypoint
+                additional_distance = dist_from_center - first_waypoint_distance
+                if additional_distance < 0:
+                    additional_distance = 0  # In case we get closer to center
+                agl_increment = additional_distance * 0.5  # Reduced from 0.8 to 0.5 feet per foot
+                desired_agl = min_height + agl_increment
             
             # Calculate final altitude
             final_altitude = local_ground_offset + desired_agl
@@ -535,6 +548,9 @@ class SpiralDesigner:
         header = "latitude,longitude,altitude(ft),heading(deg),curvesize(ft),rotationdir,gimbalmode,gimbalpitchangle,altitudemode,speed(m/s),poi_latitude,poi_longitude,poi_altitude(ft),poi_altitudemode,photo_timeinterval,photo_distinterval"
         rows = [header]
         
+        # Track first waypoint distance for relative altitude calculation
+        first_waypoint_distance = 0
+        
         for i, wp in enumerate(spiral_path):
             # Convert to lat/lon
             coords = self.xy_to_lat_lon(wp['x'], wp['y'], center['lat'], center['lon'])
@@ -549,9 +565,19 @@ class SpiralDesigner:
             
             # Calculate desired AGL based on distance from center
             dist_from_center = math.sqrt(wp['x']**2 + wp['y']**2)
-            base_agl = min_height
-            agl_increment = dist_from_center * 0.8  # Increase AGL with distance
-            desired_agl = base_agl + agl_increment
+            
+            # NEW LOGIC: First waypoint starts at min_height, subsequent waypoints increase relative to first
+            if i == 0:
+                # First waypoint starts at min_height regardless of distance from center
+                first_waypoint_distance = dist_from_center
+                desired_agl = min_height
+            else:
+                # Subsequent waypoints increase at 0.5ft per foot of additional distance from first waypoint
+                additional_distance = dist_from_center - first_waypoint_distance
+                if additional_distance < 0:
+                    additional_distance = 0  # In case we get closer to center
+                agl_increment = additional_distance * 0.5  # Reduced from 0.8 to 0.5 feet per foot
+                desired_agl = min_height + agl_increment
             
             # Calculate final altitude
             final_altitude = local_ground_offset + desired_agl
@@ -632,21 +658,36 @@ class SpiralDesigner:
         
         # Start at takeoff location (center coordinates)
         prev_lat, prev_lon = center_lat, center_lon
-        prev_altitude = 100.0  # Assume 100ft starting altitude
+        min_height = 100.0  # Use the same default min height as other methods
+        prev_altitude = min_height  # Start at min height
         
         # Time to ascend to first waypoint
         first_wp = slice_waypoints[0]
-        ascend_time = (prev_altitude * self.FT2M) / vertical_speed_mps
+        ascend_time = (min_height * self.FT2M) / vertical_speed_mps
         slice_time += ascend_time
+        
+        # Track first waypoint distance for relative altitude calculation
+        first_waypoint_distance = 0
         
         # Process each waypoint in the slice
         for i, wp in enumerate(slice_waypoints):
             # Convert waypoint coordinates to lat/lon
             coords = self.xy_to_lat_lon(wp['x'], wp['y'], center_lat, center_lon)
             
-            # Calculate altitude (simplified - use distance-based altitude)
+            # Calculate altitude using new relative logic
             dist_from_center = math.sqrt(wp['x']**2 + wp['y']**2)
-            wp_altitude = 100.0 + (dist_from_center * 0.8)  # Base + distance scaling
+            
+            if i == 0:
+                # First waypoint starts at min_height regardless of distance from center
+                first_waypoint_distance = dist_from_center
+                wp_altitude = min_height
+            else:
+                # Subsequent waypoints increase at 0.5ft per foot of additional distance from first waypoint
+                additional_distance = dist_from_center - first_waypoint_distance
+                if additional_distance < 0:
+                    additional_distance = 0  # In case we get closer to center
+                agl_increment = additional_distance * 0.5  # 0.5 feet per foot
+                wp_altitude = min_height + agl_increment
             
             # Calculate horizontal distance from previous position
             horizontal_dist_m = self.haversine_distance(prev_lat, prev_lon, coords['lat'], coords['lon'])
@@ -669,13 +710,13 @@ class SpiralDesigner:
         # Time to return home from last waypoint
         last_coords = self.xy_to_lat_lon(slice_waypoints[-1]['x'], slice_waypoints[-1]['y'], center_lat, center_lon)
         return_dist_m = self.haversine_distance(last_coords['lat'], last_coords['lon'], center_lat, center_lon)
-        return_altitude_diff_m = (prev_altitude - 100.0) * self.FT2M  # Return to starting altitude
+        return_altitude_diff_m = (prev_altitude - min_height) * self.FT2M  # Return to starting altitude
         
         return_time = (return_dist_m / speed_mps) + (abs(return_altitude_diff_m) / vertical_speed_mps) + accel_time
         slice_time += return_time
         
         # Time to descend and land
-        descent_time = (100.0 * self.FT2M) / vertical_speed_mps
+        descent_time = (min_height * self.FT2M) / vertical_speed_mps
         slice_time += descent_time
         
         return slice_time / 60.0  # Convert to minutes
