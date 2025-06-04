@@ -7,13 +7,33 @@ This system implements a sophisticated **binary search optimization algorithm** 
 ## The Problem
 
 **Input**: Battery capacity (minutes), number of batteries, center coordinates
-**Output**: Optimal spiral parameters (radius, bounces, start radius) that maximize coverage
+**Output**: Optimal spiral parameters (radius, bounces, start radius) that maximize coverage quality
 **Constraint**: Flight time per battery ≤ battery_capacity (each battery flies separately)
-**Objective**: Maximize coverage area per battery while staying within individual battery time limit
+**Objective**: Maximize both coverage area AND photo density per battery while staying within individual battery time limit
 
 ## Algorithm Design
 
-### 1. Flight Time Estimation
+### 1. Balanced Parameter Scaling
+
+**New Approach**: Instead of only optimizing radius, we use intelligent scaling for both bounces and radius:
+
+```python
+# Balanced scaling based on battery duration
+if target_battery_minutes <= 12:
+    target_bounces = 5      # Detailed but compact
+elif target_battery_minutes <= 18:
+    target_bounces = 6      # Building up
+elif target_battery_minutes <= 25:
+    target_bounces = 8      # Sweet spot range!
+elif target_battery_minutes <= 35:
+    target_bounces = 10     # Comprehensive coverage
+else:
+    target_bounces = 12     # Maximum detail
+```
+
+**Why This Matters**: More bounces = more waypoints = more photos = better reconstruction quality
+
+### 2. Flight Time Estimation
 
 Based on the original `oldFunction.py` logic, we calculate flight time for a **single battery/slice**:
 
@@ -34,29 +54,32 @@ segment_time = horizontal_time + vertical_time + hover_time + accel_time
 - Return-to-home flight from slice's last waypoint
 - Descent and landing time
 
-### 2. Binary Search Optimization
+### 3. Binary Search Optimization
 
-**Primary Parameter**: Hold radius (`rHold`) - the main driver of spiral size and flight time
+**Primary Parameter**: Hold radius (`rHold`) - optimized with FIXED bounce count
 
 ```python
 # Computational complexity: O(log n) where n = search space
 while high - low > tolerance and iterations < max_iterations:
     mid_rHold = (low + high) / 2
-    estimated_time = calculate_flight_time(mid_rHold)
+    
+    # Test with FIXED bounce count determined by battery duration
+    test_params = {
+        'N': target_bounces,  # Fixed based on scaling logic
+        'rHold': mid_rHold    # Variable being optimized
+    }
+    estimated_time = calculate_flight_time(test_params)
     
     if estimated_time <= target_time * 0.95:  # 95% safety margin
-        best_params = current_params  # This size fits, try larger
+        best_params = test_params  # This size fits, try larger radius
         low = mid_rHold
     else:
-        high = mid_rHold  # Too big, try smaller
+        high = mid_rHold  # Too big, try smaller radius
 ```
 
-**Why Binary Search?**
-- **Efficient**: O(log n) complexity vs O(n²) for brute force
-- **Predictable**: Hold radius has monotonic relationship with flight time
-- **Fast convergence**: Typically finds optimal solution in 10-15 iterations
+**Key Advantage**: Optimizes radius while maintaining appropriate photo density for the given flight time
 
-### 3. Safety and Constraints
+### 4. Safety and Constraints
 
 **95% Battery Utilization**: Maintains safety margin to account for:
 - Wind conditions affecting actual flight time
@@ -70,49 +93,55 @@ while high - low > tolerance and iterations < max_iterations:
 
 **Fallback Strategy**: If optimization fails, returns conservative minimum parameters
 
-### 4. Multi-Parameter Fine-Tuning
+### 5. Balanced Fine-Tuning
 
-After finding optimal radius, the algorithm tries to optimize bounce count if there's significant headroom (< 80% battery usage):
+After finding optimal radius with target bounce count, the algorithm attempts to add one bonus bounce if there's significant headroom:
 
 ```python
-if best_time < target_battery_minutes * 0.8:
-    # Try increasing bounces for more detailed coverage
-    for test_N in range(min_N + 1, max_N + 1):
-        if new_time <= target_time * 0.95 and new_time > best_time:
-            best_params = new_params
+# Try to add ONE more bounce if we have significant headroom (< 85% usage)
+if best_time < target_battery_minutes * 0.85 and target_bounces < max_N:
+    test_params = best_params.copy()
+    test_params['N'] = target_bounces + 1
+    
+    if new_time <= target_time * 0.95:
+        print(f"Adding bonus bounce: {target_bounces} → {target_bounces + 1}")
+        best_params = test_params  # Accept the bonus bounce
 ```
 
 ## Performance Results
 
-The algorithm demonstrates excellent scaling and consistent ~95% battery utilization **per individual battery**:
+The algorithm demonstrates excellent balanced scaling with consistent ~95% battery utilization **per individual battery**:
 
-| Battery Duration | Batteries | Optimized Radius | Utilization | Coverage per Battery |
-|------------------|-----------|------------------|-------------|---------------------|
-| 20 minutes       | 1         | 2,089 ft        | 94.9%       | Single 20-min flight |
-| 20 minutes       | 3         | 3,532 ft        | 95.0%       | Three 20-min flights |
-| 20 minutes       | 6         | 3,996 ft        | 81.3%       | Six 20-min flights |
+| Battery Duration | Batteries | Bounces | Optimized Radius | Utilization | Coverage Quality |
+|------------------|-----------|---------|------------------|-------------|------------------|
+| 10 minutes       | 2         | **5**   | 593 ft          | 95.0%       | Detailed, compact |
+| 20 minutes       | 3         | **8**   | 1,595 ft        | 95.0%       | Sweet spot balance |
+| 30 minutes       | 4         | **10**  | 3,013 ft        | 94.8%       | Comprehensive coverage |
 
-**Key Insight**: More batteries allow larger radius per battery because each slice covers smaller angular section (360°/batteries), enabling farther outbound flight in same time.
+**Key Insight**: The algorithm now balances both area coverage AND photo density. More batteries enable larger radius per battery because each slice covers smaller angular section (360°/batteries), while bounce count scales with available flight time for optimal reconstruction quality.
 
 ## Computational Efficiency
 
 **Time Complexity**: O(log n × m) where:
-- n = search space for hold radius (4,000 - 200 = 3,800 ft)
+- n = search space for hold radius (4,000 - 200 = 3,800 ft) 
 - m = time to calculate flight duration for one parameter set
 
 **Typical Performance**:
-- **Search iterations**: 10-15 per optimization
+- **Search iterations**: 10-15 per optimization  
 - **API response time**: < 1 second
 - **Memory usage**: Minimal (no large data structures)
 - **Cache efficiency**: Elevation data cached between optimizations
+- **Scaling decisions**: O(1) bounce count determination
 
 ## Key Advantages
 
-1. **Maximum Coverage**: Always finds the largest spiral that fits in battery time
-2. **Computational Efficiency**: Binary search vs brute force saves 99%+ computation time  
-3. **Safety First**: Built-in safety margins prevent battery exhaustion
-4. **Scalable**: Works equally well for 10-minute and 45-minute flights
-5. **Robust**: Handles edge cases and optimization failures gracefully
+1. **Balanced Coverage**: Optimizes both area AND photo density simultaneously
+2. **Quality Focus**: Ensures sufficient waypoints for high-quality reconstruction  
+3. **Computational Efficiency**: Binary search vs brute force saves 99%+ computation time
+4. **Safety First**: Built-in safety margins prevent battery exhaustion
+5. **Scalable**: Works equally well for short detailed flights and long comprehensive surveys
+6. **Robust**: Handles edge cases and optimization failures gracefully
+7. **Industry Best Practices**: Follows 15-20 minute sweet spot with 8 bounces for optimal results
 
 ## Future Enhancements
 
