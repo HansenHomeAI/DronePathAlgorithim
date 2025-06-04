@@ -137,6 +137,9 @@ class SpiralDesigner:
         t_hold = dphi
         t_total = 2 * t_out + t_hold
         
+        # Calculate the ACTUAL radius reached at end of outbound spiral with reduced alpha
+        actual_max_radius = r0 * math.exp(alpha * t_out)
+        
         spiral_points = []
         
         for i in range(steps):
@@ -146,9 +149,11 @@ class SpiralDesigner:
             if th <= t_out:
                 r = r0 * math.exp(alpha * th)
             elif th <= t_out + t_hold:
-                r = r_hold
+                r = actual_max_radius  # Use actual radius reached, not original r_hold
             else:
-                r = r0 * math.exp(alpha * (t_total - th))
+                # Inbound: start from actual_max_radius and spiral back to r0
+                inbound_t = th - (t_out + t_hold)
+                r = actual_max_radius * math.exp(-alpha * inbound_t)
             
             # Calculate phase and phi
             phase = ((th / dphi) % 2 + 2) % 2
@@ -200,10 +205,10 @@ class SpiralDesigner:
                 max_curve = 1500
                 curve_radius = min(max_curve, base_curve + (distance_from_center * scale_factor))
             else:
-                # Non-midpoint curve equation: smaller, conservative curves
-                base_curve = 20
+                # Non-midpoint curve equation: larger curves for smoother directional control
+                base_curve = 40  # Doubled from 20 for smoother flight
                 scale_factor = 0.05
-                max_curve = 80
+                max_curve = 160  # Doubled from 80 for smoother flight
                 curve_radius = min(max_curve, base_curve + (distance_from_center * scale_factor))
             
             curve_radius = round(curve_radius * 10) / 10  # Round to 1 decimal
@@ -417,7 +422,7 @@ class SpiralDesigner:
         
         # Ensure minimum curve radius
         for wp in spiral_path:
-            wp['curve'] = max(wp['curve'], 15)  # Minimum 15ft curve radius
+            wp['curve'] = max(wp['curve'], 30)  # Increased from 15ft to 30ft for consistency
         
         # Convert waypoints to lat/lon and get optimized elevations
         locations = []
@@ -562,7 +567,7 @@ class SpiralDesigner:
         
         # Ensure minimum curve radius
         for wp in spiral_path:
-            wp['curve'] = max(wp['curve'], 15)  # Minimum 15ft curve radius
+            wp['curve'] = max(wp['curve'], 30)  # Increased from 15ft to 30ft for consistency
         
         # Convert waypoints to lat/lon and get optimized elevations
         locations = []
