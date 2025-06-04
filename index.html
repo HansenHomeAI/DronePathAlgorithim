@@ -3,79 +3,417 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Bounded Spiral Designer</title>
-  <script src="https://cdn.plot.ly/plotly-2.24.2.min.js"></script>
+  <title>Spiral Flight Planner</title>
   <style>
-    :root{--bg:#0d0d0d;--surface:#161616;--accent:#0a84ff;--text:#eaeaea;--muted:#888;--grid:#222}
-    *{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-    body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--text)}
-    header{padding:1.2rem 2rem;font-size:1.4rem;font-weight:600}
-    main{flex:1;display:grid;grid-template-rows:1fr auto}
-    #graph{width:100%;height:100%}
-    #controls{background:var(--surface);padding:1rem 2rem;border-top:1px solid #222;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1.2rem 2rem}
-    .control{display:flex;flex-direction:column;gap:.35rem}
-    label{font-size:.9rem;font-weight:500;color:var(--muted)}
-    input[type=range],input[type=text],input[type=number]{width:100%;}
-    input[type=range]{-webkit-appearance:none;height:6px;border-radius:3px;background:#333}
-    input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--accent);cursor:pointer}
-    input[type=text],input[type=number]{padding:.45rem .6rem;border-radius:6px;border:1px solid #333;background:#0f0f0f;color:var(--text)}
-    .value-label{align-self:flex-end;font-size:.85rem}
-    .param-display{font-size:.75rem;color:var(--muted);margin-top:.2rem}
-    button{padding:.55rem 1.1rem;border:none;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer;font-size:.85rem}
-    button:disabled{background:#666;cursor:not-allowed}
-    #btnRow{grid-column:1/-1;display:flex;gap:1rem;justify-content:center}
-    .status{font-size:.8rem;color:var(--muted);text-align:center;margin-top:0.5rem}
-    .error{color:#ff6b6b}
-    .success{color:#51cf66}
+    :root {
+      --bg: #fafafa;
+      --surface: #ffffff;
+      --border: #e5e5e7;
+      --text: #1d1d1f;
+      --text-secondary: #86868b;
+      --accent: #007aff;
+      --accent-hover: #0056cc;
+      --success: #34c759;
+      --error: #ff3b30;
+      --warning: #ff9500;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.1);
+      --shadow-lg: 0 4px 16px rgba(0,0,0,0.1);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #000000;
+        --surface: #1c1c1e;
+        --border: #38383a;
+        --text: #ffffff;
+        --text-secondary: #8e8e93;
+        --accent: #0a84ff;
+        --accent-hover: #409cff;
+        --success: #30d158;
+        --error: #ff453a;
+        --warning: #ff9f0a;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2rem;
+      flex: 1;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+
+    .header h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(135deg, var(--accent), var(--warning));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .header p {
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      font-weight: 400;
+    }
+
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 1.5rem;
+      overflow: hidden;
+    }
+
+    .section-header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(to bottom, var(--surface), #f8f8f8);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .section-header {
+        background: linear-gradient(to bottom, var(--surface), #141416);
+      }
+    }
+
+    .section-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+
+    .section-subtitle {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+
+    .section-content {
+      padding: 1.5rem;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .form-group.full-width {
+      grid-column: 1 / -1;
+    }
+
+    label {
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    input[type="number"],
+    input[type="text"] {
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 1rem;
+      transition: all 0.2s ease;
+    }
+
+    input[type="number"]:focus,
+    input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+    }
+
+    .input-unit {
+      position: relative;
+    }
+
+    .input-unit::after {
+      content: attr(data-unit);
+      position: absolute;
+      right: 1rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      pointer-events: none;
+    }
+
+    .optimization-display {
+      background: #f0f9ff;
+      border: 1px solid #bae6fd;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 0.5rem;
+      font-size: 0.9rem;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .optimization-display {
+        background: #0a1628;
+        border-color: #1e3a8a;
+      }
+    }
+
+    .button-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      justify-content: center;
+      margin-top: 1rem;
+    }
+
+    .btn {
+      padding: 0.75rem 1.5rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 120px;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .btn-secondary {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: var(--border);
+      transform: translateY(-1px);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .status {
+      text-align: center;
+      padding: 1rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      margin-top: 1rem;
+    }
+
+    .status.success {
+      background: rgba(52, 199, 89, 0.1);
+      color: var(--success);
+      border: 1px solid rgba(52, 199, 89, 0.2);
+    }
+
+    .status.error {
+      background: rgba(255, 59, 48, 0.1);
+      color: var(--error);
+      border: 1px solid rgba(255, 59, 48, 0.2);
+    }
+
+    .status.info {
+      background: rgba(0, 122, 255, 0.1);
+      color: var(--accent);
+      border: 1px solid rgba(0, 122, 255, 0.2);
+    }
+
+    .battery-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+
+    .battery-btn {
+      padding: 0.5rem 1rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .battery-btn:hover:not(:disabled) {
+      background: var(--border);
+      transform: translateY(-1px);
+    }
+
+    .elevation-info {
+      background: #f8f9fa;
+      border: 1px solid #e9ecef;
+      border-radius: 6px;
+      padding: 0.75rem;
+      margin-top: 0.5rem;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .elevation-info {
+        background: #1a1a1c;
+        border-color: #2c2c2e;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .container {
+        padding: 1rem;
+      }
+      
+      .header h1 {
+        font-size: 2rem;
+      }
+      
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+      
+      .button-group {
+        flex-direction: column;
+      }
+      
+      .btn {
+        width: 100%;
+      }
+    }
   </style>
 </head>
 <body>
-  <header>Bounded Spiral Designer</header>
-  <main>
-    <section id="graph"></section>
-    <section id="controls">
-      <div class="control">
-        <label>Batteries (minimum 2)</label>
-        <input id="batteries" type="number" min="2" max="10" value="2">
-        <span class="value-label" id="batteryVal">2 batteries</span>
+  <div class="container">
+    <div class="header">
+      <h1>Spiral Flight Planner</h1>
+      <p>Battery-optimized drone missions with neural network training features</p>
+    </div>
+
+    <!-- Mission Parameters -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title">Mission Parameters</div>
+        <div class="section-subtitle">Configure your flight mission settings</div>
       </div>
-      <div class="control">
-        <label>Battery Duration (minutes)</label>
-        <input id="batteryDuration" type="number" min="10" max="45" value="20" step="1">
-        <span class="value-label" id="batteryDurationVal">20 minutes</span>
-        <div class="param-display" id="optimizationDisplay">
-          Auto-optimizing for maximum coverage...
+      <div class="section-content">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="batteries">Number of Batteries</label>
+            <div class="input-unit" data-unit="batteries">
+              <input id="batteries" type="number" min="2" max="10" value="3">
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label for="batteryDuration">Battery Duration</label>
+            <div class="input-unit" data-unit="minutes">
+              <input id="batteryDuration" type="number" min="10" max="45" value="20" step="1">
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label for="minHeight">Minimum Height</label>
+            <div class="input-unit" data-unit="ft AGL">
+              <input id="minHeight" type="number" min="50" max="1000" value="100" step="10">
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label for="maxHeight">Maximum Height</label>
+            <div class="input-unit" data-unit="ft AGL">
+              <input id="maxHeight" type="number" min="100" max="2000" value="400" step="10">
+            </div>
+          </div>
+        </div>
+        
+        <div id="optimizationDisplay" class="optimization-display" style="display: none;">
+          <strong>Optimization Results:</strong>
+          <div id="optimizationDetails"></div>
         </div>
       </div>
-      <div class="control">
-        <label>Flight Speed (mph)</label>
-        <input id="flightSpeed" type="number" min="15" max="25" value="20" step="0.5">
-        <span class="value-label" id="flightSpeedVal">20 mph</span>
+    </div>
+
+    <!-- Location -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title">Flight Location</div>
+        <div class="section-subtitle">Enter the center coordinates for your mission</div>
       </div>
-      <div class="control">
-        <label>Minimum Height (ft AGL)</label>
-        <input id="minHeight" type="number" min="50" max="1000" value="100" step="10">
-        <span class="value-label" id="minHeightVal">100 ft</span>
-      </div>
-      <div class="control">
-        <label>Maximum Height (ft AGL)</label>
-        <input id="maxHeight" type="number" min="100" max="2000" value="400" step="10">
-        <span class="value-label" id="maxHeightVal">400 ft</span>
-      </div>
-      <div class="control" style="grid-column:1/-1">
-        <label>Center (lat, lon)</label>
-        <input id="centerLL" type="text" placeholder="41.73218° N, 111.83979° W  or  41.73218, -111.83979">
-        <div class="param-display" id="elevationDisplay" style="margin-top: 0.3rem; color: var(--muted);">
-          Enter coordinates to see ground elevation
+      <div class="section-content">
+        <div class="form-group">
+          <label for="centerLL">Center Coordinates</label>
+          <input id="centerLL" type="text" placeholder="41.73218, -111.83979  or  41.73218° N, 111.83979° W">
+          <div id="elevationDisplay" class="elevation-info">
+            Enter coordinates to see ground elevation and optimize mission
+          </div>
         </div>
       </div>
-      <div id="btnRow">
-        <div id="batteryButtons" style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;"></div>
-        <button id="csvMasterBtn" style="margin-top: 0.5rem;">Download Master CSV</button>
+    </div>
+
+    <!-- Download Options -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title">Mission Files</div>
+        <div class="section-subtitle">Download Litchi-compatible CSV files for your drone</div>
       </div>
-      <div class="status" id="status">Ready</div>
-    </section>
-  </main>
+      <div class="section-content">
+        <div id="batteryButtons" class="battery-buttons"></div>
+        
+        <div class="button-group">
+          <button id="csvMasterBtn" class="btn btn-primary">Download Complete Mission</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="status" class="status info">Connecting to backend...</div>
+  </div>
 
 <script>
 (()=>{
@@ -84,17 +422,18 @@
   
   // DOM elements
   const $=id=>document.getElementById(id);
-  const batteriesS=$('batteries'), batteryDurationS=$('batteryDuration'), flightSpeedS=$('flightSpeed'), minHeightS=$('minHeight'), maxHeightS=$('maxHeight');
-  const lbl={batteryVal:$('batteryVal'),batteryDurationVal:$('batteryDurationVal'),flightSpeedVal:$('flightSpeedVal'),minHeightVal:$('minHeightVal'),maxHeightVal:$('maxHeightVal')};
+  const batteriesS=$('batteries'), batteryDurationS=$('batteryDuration'), minHeightS=$('minHeight'), maxHeightS=$('maxHeight');
   const statusEl = $('status');
   const optimizationDisplay = $('optimizationDisplay');
+  const optimizationDetails = $('optimizationDetails');
+  const elevationDisplay = $('elevationDisplay');
   
   // State management
   let currentOptimizedParams = null;
   let isOptimizing = false;
   
   // Event listeners for controls
-  [batteriesS, batteryDurationS, flightSpeedS, minHeightS, maxHeightS].forEach(el=>el.addEventListener('input',()=>refresh()));
+  [batteriesS, batteryDurationS, minHeightS, maxHeightS].forEach(el=>el.addEventListener('input',()=>refresh()));
   $('csvMasterBtn').addEventListener('click', downloadCSV);
   $('centerLL').addEventListener('blur', checkElevation);
 
@@ -140,39 +479,19 @@
     return batteries;
   };
 
-  // Calculate individual parameters from size slider
-  const calculateParams = (sizeValue) => {
-    const size = parseFloat(sizeValue);
-    const batteries = getBatteryCount();
-    const heights = getHeightValues();
-    
-    // Linear interpolation for each parameter
-    const r0 = 150 + (size / 100) * (500 - 150);      // 150ft → 500ft
-    const rHold = 500 + (size / 100) * (3000 - 500);  // 500ft → 3000ft
-    const N = Math.round(5 + (size / 100) * (10 - 5)); // 5 → 10 bounces
-    
-    return {
-      slices: batteries,  // batteries = slices for the backend
-      N: N,
-      r0: Math.round(r0 * 10) / 10,  // Round to 1 decimal
-      rHold: Math.round(rHold),        // Round to nearest integer
-      minHeight: heights.minHeight,
-      maxHeight: heights.maxHeight
-    };
-  };
-
   // Optimization functions
   async function optimizeSpiral() {
     if (isOptimizing) return;
     
     const centerVal = $('centerLL').value.trim();
     if (!centerVal) {
-      optimizationDisplay.textContent = 'Enter coordinates to optimize';
+      optimizationDisplay.style.display = 'none';
       return;
     }
     
     isOptimizing = true;
-    optimizationDisplay.textContent = 'Optimizing spiral parameters...';
+    optimizationDisplay.style.display = 'block';
+    optimizationDetails.innerHTML = 'Optimizing spiral parameters for maximum coverage...';
     
     try {
       const batteries = getBatteryCount();
@@ -189,13 +508,17 @@
       
       // Update display with optimization results
       const info = data.optimization_info;
-      optimizationDisplay.innerHTML = `
-        <strong>Optimized:</strong> ${info.spiral_radius_feet}ft radius • ${info.bounce_count} bounces<br>
-        <span style="color: var(--accent)">Est. ${info.estimated_time_minutes}min (${info.battery_utilization_percent}% battery)</span>
+      optimizationDetails.innerHTML = `
+        <div style="margin-bottom: 0.5rem;">
+          <strong>Optimized Configuration:</strong> ${info.spiral_radius_feet}ft radius • ${info.bounce_count} bounces
+        </div>
+        <div style="color: var(--accent); font-weight: 500;">
+          Estimated ${info.estimated_time_minutes} minutes (${info.battery_utilization_percent}% battery usage)
+        </div>
       `;
       
     } catch (error) {
-      optimizationDisplay.textContent = 'Optimization failed - using defaults';
+      optimizationDetails.innerHTML = 'Optimization failed - using default parameters';
       currentOptimizedParams = null;
     } finally {
       isOptimizing = false;
@@ -223,20 +546,6 @@
       minHeight: heights.minHeight,
       maxHeight: heights.maxHeight
     };
-  };
-
-  const updateLabels = () => {
-    const batteries = getBatteryCount();
-    lbl.batteryVal.textContent = `${batteries} ${batteries === 1 ? 'battery' : 'batteries'}`;
-    
-    lbl.batteryDurationVal.textContent = `${batteryDurationS.value} minutes`;
-    
-    lbl.flightSpeedVal.textContent = `${flightSpeedS.value} mph`;
-    
-    // Update height labels
-    const heights = getHeightValues();
-    lbl.minHeightVal.textContent = `${heights.minHeight} ft`;
-    lbl.maxHeightVal.textContent = `${heights.maxHeight} ft`;
   };
 
   // API functions
@@ -269,18 +578,6 @@
     }
   }
 
-  async function getSpiralData() {
-    try {
-      setStatus('Generating spiral...');
-      const response = await apiCall('/spiral-data', params());
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      setStatus('Failed to generate spiral', 'error');
-      throw error;
-    }
-  }
-
   async function downloadCSV() {
     try {
       const centerVal = $('centerLL').value.trim();
@@ -289,7 +586,7 @@
         return;
       }
       
-      setStatus('Generating CSV...');
+      setStatus('Generating complete mission CSV...');
       setButtonsEnabled(false);
       
       const requestData = {
@@ -310,7 +607,7 @@
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
       
-      setStatus('CSV downloaded successfully', 'success');
+      setStatus('Mission CSV downloaded successfully', 'success');
     } catch (error) {
       setStatus('Failed to generate CSV', 'error');
     } finally {
@@ -331,7 +628,6 @@
       const btn = document.createElement('button');
       btn.textContent = `Battery ${i}`;
       btn.className = 'battery-btn';
-      btn.style.cssText = 'padding: 0.4rem 0.8rem; font-size: 0.8rem; background: #444; border: 1px solid #666;';
       btn.addEventListener('click', () => downloadBatteryCSV(i));
       batteryButtonsContainer.appendChild(btn);
     }
@@ -374,43 +670,7 @@
     }
   }
 
-  async function draw() {
-    try {
-      const spiralData = await getSpiralData();
-      const traces = spiralData.traces || [];
-      
-      Plotly.newPlot('graph', traces, {
-        margin: {t: 20, l: 20, r: 20, b: 20},
-        paper_bgcolor: 'var(--bg)',
-        plot_bgcolor: 'var(--bg)',
-        showlegend: false,
-        xaxis: {
-          showgrid: true,
-          gridcolor: 'var(--grid)',
-          dtick: 2,
-          showticklabels: false,
-          zeroline: false,
-          scaleanchor: 'y',
-          scaleratio: 1
-        },
-        yaxis: {
-          showgrid: true,
-          gridcolor: 'var(--grid)',
-          dtick: 2,
-          showticklabels: false,
-          zeroline: false
-        }
-      });
-      
-      setStatus('Ready');
-    } catch (error) {
-      console.error('Draw error:', error);
-      setStatus('Failed to draw spiral', 'error');
-    }
-  }
-
   async function refresh() {
-    updateLabels();
     createBatteryButtons();
     
     // Trigger optimization if we have coordinates
@@ -418,8 +678,6 @@
     if (centerVal) {
       await optimizeSpiral();
     }
-    
-    await draw();
   }
 
   // Health check on startup
@@ -427,8 +685,7 @@
     try {
       const response = await fetch(`${API_BASE}/health`);
       if (response.ok) {
-        setStatus('Connected to Python backend', 'success');
-        setTimeout(() => setStatus('Ready'), 2000);
+        setStatus('Ready to generate missions', 'success');
       } else {
         throw new Error('Backend not responding');
       }
@@ -440,10 +697,10 @@
   // Check elevation for entered coordinates
   async function checkElevation() {
     const centerVal = $('centerLL').value.trim();
-    const elevationDisplay = $('elevationDisplay');
     
     if (!centerVal) {
-      elevationDisplay.textContent = 'Enter coordinates to see ground elevation';
+      elevationDisplay.textContent = 'Enter coordinates to see ground elevation and optimize mission';
+      optimizationDisplay.style.display = 'none';
       return;
     }
     
@@ -452,20 +709,22 @@
       const response = await apiCall('/elevation', { center: centerVal });
       const data = await response.json();
       
-      elevationDisplay.textContent = `Ground elevation: ${data.elevation_feet} ft (${data.elevation_meters} m)`;
+      elevationDisplay.innerHTML = `
+        <strong>Ground elevation:</strong> ${data.elevation_feet} ft (${data.elevation_meters} m)<br>
+        <span style="color: var(--text-secondary);">Mission altitudes will be calculated relative to this elevation</span>
+      `;
       
       // Trigger optimization after getting elevation
       await optimizeSpiral();
     } catch (error) {
-      elevationDisplay.textContent = 'Unable to get elevation data';
+      elevationDisplay.textContent = 'Unable to get elevation data - check coordinates format';
+      optimizationDisplay.style.display = 'none';
     }
   }
 
   // Initialize
-  updateLabels();
   createBatteryButtons();
   checkHealth();
-  refresh();
 })();
 </script>
 </body>
