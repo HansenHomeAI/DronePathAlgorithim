@@ -132,7 +132,7 @@ class SpiralDesigner:
             r_hold: Hold radius
             steps: Number of steps in spiral
         """
-        alpha = math.log(r_hold / r0) / (N * dphi)
+        alpha = math.log(r_hold / r0) / (N * dphi) * 0.86  # Reduced by 14% for more gradual expansion
         t_out = N * dphi
         t_hold = dphi
         t_total = 2 * t_out + t_hold
