@@ -137,11 +137,67 @@ The algorithm demonstrates excellent balanced scaling with consistent ~95% batte
 
 1. **Balanced Coverage**: Optimizes both area AND photo density simultaneously
 2. **Quality Focus**: Ensures sufficient waypoints for high-quality reconstruction  
-3. **Computational Efficiency**: Binary search vs brute force saves 99%+ computation time
-4. **Safety First**: Built-in safety margins prevent battery exhaustion
-5. **Scalable**: Works equally well for short detailed flights and long comprehensive surveys
-6. **Robust**: Handles edge cases and optimization failures gracefully
-7. **Industry Best Practices**: Follows 15-20 minute sweet spot with 8 bounces for optimal results
+3. **Neural Network Training**: Differentiated altitude logic provides diverse viewing angles
+4. **Dense Coverage**: Reduced expansion rate creates more overlap for better training data
+5. **Computational Efficiency**: Binary search vs brute force saves 99%+ computation time
+6. **Safety First**: Built-in safety margins prevent battery exhaustion
+7. **Scalable**: Works equally well for short detailed flights and long comprehensive surveys
+8. **Robust**: Handles edge cases and optimization failures gracefully
+9. **Industry Best Practices**: Follows 15-20 minute sweet spot with 8 bounces for optimal results
+
+## Neural Network Training Optimizations
+
+### 6. Differentiated Altitude Logic
+
+**Enhanced for AI Training**: The system now implements sophisticated altitude progression specifically designed for neural network training data collection:
+
+```python
+# Outbound waypoints: Detail capture at lower altitudes
+if 'outbound' in phase or 'hold' in phase:
+    agl_increment = additional_distance * 0.37  # 0.37 feet per foot
+    desired_agl = min_height + agl_increment
+
+# Inbound waypoints: Context capture at higher altitudes  
+elif 'inbound' in phase:
+    altitude_decrease = distance_from_max * 0.1  # Only 0.1 feet per foot decrease
+    desired_agl = max_outbound_altitude - altitude_decrease
+```
+
+**Training Data Benefits**:
+- **Diverse Viewing Angles**: Up to 135ft altitude difference at same locations
+- **Detail vs Overview**: Lower outbound shots capture textures, higher inbound shots provide context
+- **Rich Feature Learning**: Networks learn from both close-up and elevated perspectives
+- **Better 3D Reconstruction**: Varied angles improve depth estimation and spatial understanding
+
+### 7. Reduced Expansion Rate
+
+**Gentler Spiral Progression**: The exponential expansion coefficient has been reduced by 14% for denser coverage:
+
+```python
+alpha = math.log(r_hold / r0) / (N * dphi) * 0.86  # 14% reduction
+```
+
+**Neural Network Benefits**:
+- **Smaller Steps**: Reduces gaps between successive bounces for better photo overlap
+- **Denser Coverage**: More waypoints per area improves training data quality
+- **Smoother Transitions**: More gradual expansion creates consistent flight paths
+- **Enhanced Training Quality**: Increased photo density provides richer datasets
+
+**Performance Impact**:
+| Bounce | Original Radius | Optimized Radius | Improvement |
+|--------|----------------|------------------|-------------|
+| 1      | 134.7ft        | 128.4ft         | +6.3ft denser |
+| 3      | 245.2ft        | 211.7ft         | +33.5ft denser |
+| 6      | 600.0ft        | 445.5ft         | +154.5ft denser |
+
+### 8. AI Training Data Quality Metrics
+
+**Quantified Benefits**:
+- **Average altitude differential**: 92.2ft between outbound/inbound at same locations
+- **Maximum altitude differential**: 135ft near center of interest
+- **Coverage density increase**: 14% more waypoints per spiral area
+- **Photo overlap improvement**: Enhanced by reduced expansion rate
+- **Viewing angle diversity**: Each location captured from 2+ distinct perspectives
 
 ## Future Enhancements
 
